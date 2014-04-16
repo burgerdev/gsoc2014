@@ -37,6 +37,11 @@ class TestMergeLabels(unittest.TestCase):
         uArray[4:6, 4:6] = 255
         uLabels[4:6, 4:6] = 4
         
+        # line ending at boundary
+        uArray[0, 4] = 13
+        uLabels[0, 4] = 5
+        uArray[0, 5] = 31
+        uLabels[0, 5] = 6
         
         self.uLabels = uLabels
         self.uArray = uArray
@@ -88,7 +93,7 @@ class TestMergeLabels(unittest.TestCase):
                 uf[i, j].mapArray(res[i*m:(i+1)*m, j*m:(j+1)*m])
         print(res)
         
-        assertEquivalentLabeling(labels, res)
+        assertEquivalentLabeling(res, labels)
 
 
 class TestUnionFind(unittest.TestCase):
@@ -135,7 +140,9 @@ class TestUnionFind(unittest.TestCase):
         assert labels[-1, 0] == labels[0, 0]
 
 
-def assertEquivalentLabeling(x, y):
+def assertEquivalentLabeling(labelImage, referenceImage):
+    x = labelImage
+    y = referenceImage
     assert np.all(x.shape == y.shape),\
         "Shapes do not agree ({} vs {})".format(x.shape, y.shape)
 
@@ -145,15 +152,17 @@ def assertEquivalentLabeling(x, y):
         if label == 0:
             continue
         idx = np.where(x == label)
-        block = y[idx]
+        refblock = y[idx]
         # check that labels are the same
-        an_index = [a[0] for a in idx]
-        print("Inspecting block of shape {} at".format(block.shape))
-        print(an_index)
-        assert np.all(block == block[0]),\
-            "Block at {} has multiple labels".format(an_index)
+        corner = [a[0] for a in idx]
+        print("Inspecting region of size {} at {}".format(refblock.size, corner))
+
+        assert np.all(refblock == refblock[0]),\
+            "Uniformly labeled region at coordinates {} has more than one label in the reference image".format(corner)
         # check that nothing else is labeled with this label
-        m = block.size
-        n = len(np.where(y == block[0])[0])
-        assert m == n, "Label {} is used somewhere else.".format(label)
+        m = refblock.size
+        n = (y == refblock[0]).sum()
+        assert m == n, "There are more pixels with (reference-)label {} than pixels with label {}.".format(refblock[0], label)
+
+    assert len(labels) == len(set(y.flat)), "The number of labels does not agree, perhaps some region was missed"
 
