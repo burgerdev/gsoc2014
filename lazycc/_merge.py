@@ -32,22 +32,23 @@ def mergeLabels(hyperplane_a, hyperplane_b, UF_a, UF_b, GUF):
                               UF_b.find(b))
             else:
                 # assign A's global label to B
-                UF_b.makeUnion(b, UF_a.find(a))
+                UF_b.setGlobal(b, UF_a.find(a))
 
         else:
             if _isGlobal(b, UF_b):
                 # assign B's global label to A
-                UF_a.makeUnion(a, UF_b.find(b))
+                UF_a.setGlobal(a, UF_b.find(b))
             else:
                 # assign a new global label to both
                 label = _getGlobalLabel(GUF)
-                UF_a.makeUnion(a, label)
-                UF_b.makeUnion(b, label)
+                UF_a.setGlobal(a, label)
+                UF_b.setGlobal(b, label)
 
 
 def _isGlobal(x, uf):
-    return uf.find(x) < 0
+    return uf.isGlobal(x)
 
 
 def _getGlobalLabel(uf):
-    return -uf.makeNewLabel()
+    return uf.makeNewLabel()
+

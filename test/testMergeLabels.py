@@ -32,7 +32,8 @@ class TestMergeLabels(unittest.TestCase):
         print(planeInc)
 
         np.testing.assert_array_equal(plane, planeInc)
-        assert False
+        assert plane[0, 0] > 0
+        assert plane[-1, -1] > 0
 
 
 class TestUnionFind(unittest.TestCase):
