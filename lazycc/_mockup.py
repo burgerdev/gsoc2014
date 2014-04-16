@@ -20,7 +20,7 @@ class UnionFindArray(object):
     def makeUnion(self, a, b):
         assert a in self._map
         assert b in self._map
-        # avoid cycles by choosing the smallest label as teh common one
+        # avoid cycles by choosing the smallest label as the common one
         if a < b:
             self._map[b] = a
         else:
@@ -47,14 +47,26 @@ class UnionFindArray(object):
         else:
             return _a
 
+    def finalizeGlobal(self, uf):
+        
+        # globalize labels
+        for k in self._map:
+            if k != 0 and not self.isGlobal(k):
+                self.setGlobal(k, uf.makeNewLabel())
+
+        # map labels
+        for k in self._map:
+            self._map[k] = uf.find(self._map[k])
+
     def mapArray(self, arr):
         x = np.zeros((max(self._map.keys())+1,))
         for key in self._map:
-            x[key] = self._map[key]
+            x[key] = self.find(key)
         x = np.abs(x).astype(np.uint32)
         arr[:] = x[arr]
 
     def setGlobal(self, a, global_a):
+        assert not self.isGlobal(a)
         self._map[a] = global_a
         self._global[a] = True
 

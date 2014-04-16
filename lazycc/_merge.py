@@ -27,7 +27,8 @@ def mergeLabels(hyperplane_a, hyperplane_b, UF_a, UF_b, GUF):
 
         if _isGlobal(a, UF_a):
             if _isGlobal(b, UF_b):
-                print("Merging {} and {}".format(UF_a.find(a), UF_b.find(b)))
+                print("Merging {} and {}".format(a, b))
+                #print("Merging {} and {}".format(UF_a.find(a), UF_b.find(b)))
                 GUF.makeUnion(UF_a.find(a),
                               UF_b.find(b))
             else:
