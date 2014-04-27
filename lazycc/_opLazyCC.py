@@ -3,6 +3,7 @@
 # author: Markus Döring
 
 from lazyflow.operator import Operator, InputSlot, OutputSlot
+from lazyflow.rtype import SubRegion
 
 from _merge import mergeLabels
 
@@ -30,6 +31,7 @@ class OpLazyCC(Operator):
         chunkShape = self.ChunkShape.value
         f = lambda i: shape[i]//chunkShape[i] + (1 if shape[i]%chunkShape[i] else 0)
         self._chunkArrayShape = tuple(map(f,range(3)))
+        self._chunkShape = np.asarray(chunkShape, dtype=np.int)
         
         # keep track of number of labels in chunk (-1 == not labeled yet)
         #FIXME need int64 here, but we are screwed anyway if the number of 
@@ -41,7 +43,6 @@ class OpLazyCC(Operator):
         
         # offset (global labels - local labels) per chunk
         self._globalLabelOffset = -np.ones(self._chunkArrayShape, dtype=np.int32)
-        
         
         
     ## grow the requested region such that all labels inside that region are final
@@ -60,7 +61,7 @@ class OpLazyCC(Operator):
         
         for otherChunk in neighbours:
             self._label(otherChunk)
-            self._merge(otherChunk, chunkIndex)
+            self._merge(chunkIndex, otherChunk)
             
             adjacentLabels = self._getAdjacentLabels(chunkIndex, otherChunk)
             adjacentlabels = map(lambda s: s[1], adjacentLabels)
@@ -92,7 +93,8 @@ class OpLazyCC(Operator):
             # get 1 label that determines the offset
             offset = self._uf.makeNewLabel()
             # the offset is such that label 1 in the local chunk maps to
-            self._globalLabelOffset[chunkIndex] = offset
+            # 'offset' in the global context
+            self._globalLabelOffset[chunkIndex] = offset - 1
             
             # get n-1 more labels
             for i in range(numLabels-1):
@@ -103,3 +105,29 @@ class OpLazyCC(Operator):
         #TODO
         pass
 
+    def _chunkIndexToRoi(self, index):
+        shape = self.Input.meta.shape
+        stop = self._chunkShape
+        stop = np.where(stop > shape, shape, stop)
+        start = stop * 0
+        roi = SubRegion(self.Input,
+                        start=tuple(start), stop=tuple(stop))
+        return roi
+
+    def _getAdjacentLabels(self, indexA, indexB):
+        return []
+
+    def _generateNeighbours(self, chunkIndex):
+        n = []
+        idx = np.asarray(chunkIndex, dtype=np.int)
+        for i in len(chunkIndex):
+            if idx[i] > 0:
+                new = idx.copy()
+                new[i] -= 1
+                n.append(tuple(new))
+            if idx[i]+1 < self._chunkArrayShape[i]:
+                new = idx.copy()
+                new[i] += 1
+                n.append(tuple(new))
+        return n
+            

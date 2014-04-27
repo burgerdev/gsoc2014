@@ -15,10 +15,14 @@ class UnionFindArray(object):
             self._map[0] = 0
         else:
             self._map = {0: 0}
-		
+
         self._offset = 0
 
-    def makeUnion(self, a, b):
+    ## join regions a and b
+    # callback is called whenever two regions are joined that were
+    # separate before, signature is 
+    #   callback(smaller_label, larger_label)
+    def makeUnion(self, a, b, callback=None):
         assert a in self._map
         assert b in self._map
         
@@ -26,11 +30,17 @@ class UnionFindArray(object):
         b = self.find(b, useOffset=False)
         
         # avoid cycles by choosing the smallest label as the common one
-        print("making union {} and {}".format(a, b))
-        if a < b:
-            self._map[b] = a
-        else:
-            self._map[a] = b
+        # swap such that a is smaller
+        if a > b:
+            a, b = b, a
+
+        self._map[b] = a
+        
+        if a != b and callback is not None:
+            callback(a, b)
+        
+        
+        
 
     def finalizeLabel(self, a):
         raise NotImplementedError()
@@ -65,7 +75,7 @@ class UnionFindArray(object):
     def __str__(self):
         s = "<UnionFindArray>\n{}".format(self._map)
         return s
-		
+
     def setOffset(self, n):
         self._offset = n
 
