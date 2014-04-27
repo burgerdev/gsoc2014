@@ -7,7 +7,7 @@ from lazyflow.operator import Operator, InputSlot, OutputSlot
 from _merge import mergeLabels
 
 ## 3d data only, xyz
-class OpLazyCC(lazyflow.operator.Operator):
+class OpLazyCC(Operator):
     Input = InputSlot()
     ChunkShape = InputSlot()
     Output = OutputSlot()
@@ -28,7 +28,7 @@ class OpLazyCC(lazyflow.operator.Operator):
         # chunk array shape calculation
         shape = self.Input.meta.shape
         chunkShape = self.ChunkShape.value
-        f = lambda i: shape[i]//chunkShape[i] + (1 shape[i]%chunkShape[i] else 0)
+        f = lambda i: shape[i]//chunkShape[i] + (1 if shape[i]%chunkShape[i] else 0)
         self._chunkArrayShape = tuple(map(f,range(3)))
         
         # keep track of number of labels in chunk (-1 == not labeled yet)
@@ -48,10 +48,15 @@ class OpLazyCC(lazyflow.operator.Operator):
     # @param chunkIndex the index of the chunk to finalize
     # @param labels the labels that need to be finalized
     def _finalizeChunk(self, chunkIndex, labels):
+        #FIXME lock this in case some other thread wants to finalize the same chunk
         if self._isFinal[chunkIndex]:
             return
         
+        # get a list of neighbours that have to be checked
         neighbours = self._generateNeighbours(chunkIndex)
+        
+        # label this chunk first
+        self._label(chunkIndex)
         
         for otherChunk in neighbours:
             self._label(otherChunk)
@@ -64,16 +69,37 @@ class OpLazyCC(lazyflow.operator.Operator):
 
     ## label a chunk and store information
     def _label(self, chunkIndex):
+        #FIXME prevent other threads from labeling this block
         if self._numLabels[chunkIndex] >= 0:
+            # this chunk is already labeled
             return
+        
+        # get the raw data
         roi = self._chunkIndexToRoi(chunkIndex)
-        temp = self.Input.get(roi).wait()
+        inputChunk = self.Input.get(roi).wait()
+        
+        # label the raw data
         labeled = vigra.labelVolumeWithBackground(temp)
+        
+        # store the labeled data in cache
         self._cache.setInSlot(self._cache.Input, (), roi, labeled)
+        
+        # update the labeling information
         numLabels = labeled.max()  # we ignore 0 here
         self._numLabels[chunkIndex] = numLabels
         if numLabels > 0:
+            #FIXME critical section here
+            # get 1 label that determines the offset
             offset = self._uf.makeNewLabel()
-            self._globalLabelOffset[chunkIndex] = offset  # FIXME +1??
+            # the offset is such that label 1 in the local chunk maps to
+            self._globalLabelOffset[chunkIndex] = offset
             
-        
+            # get n-1 more labels
+            for i in range(numLabels-1):
+                self._uf.makeNewLabel()
+    
+    ## merge chunks with callback that updates adjacency graph
+    def _merge(self, chunkA, chunkB):
+        #TODO
+        pass
+

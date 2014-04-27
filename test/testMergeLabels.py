@@ -48,21 +48,26 @@ class TestMergeLabels(unittest.TestCase):
 
     def testSimple(self):
         plane = np.asarray(self.tinyArray)
-        planeInc = plane * 3
-        uf = UnionFindArray(plane)
-        ufInc = UnionFindArray(planeInc)
+        labels = plane.copy()
+        planeInc = plane.copy()
+        labelsInc = labels.copy()
+        labelsInc[planeInc > 0] += 1
+        
+        uf = UnionFindArray(labels)
+        ufInc = UnionFindArray(labelsInc)
+        ufInc.setOffset(2)
         guf = UnionFindArray()
+        for i in range(5):
+            guf.makeNewLabel()
 
-        mergeLabels(plane, planeInc, uf, ufInc, guf)
-        print(uf)
-        print(ufInc)
-        print(guf)
-        uf.mapArray(plane)
-        ufInc.mapArray(planeInc)
-        print(plane)
-        print(planeInc)
+        mergeLabels(plane, planeInc, labels, labelsInc, uf, ufInc, guf)
+        uf.mapArray(labels)
+        ufInc.mapArray(labelsInc)
+        guf.mapArray(labels)
+        guf.mapArray(labelsInc)
 
-        np.testing.assert_array_equal(plane, planeInc)
+        np.testing.assert_array_equal(labels, labelsInc)
+        plane *= planeInc
         assert plane[0, 0] > 0
         assert plane[-1, -1] > 0
         
@@ -75,24 +80,43 @@ class TestMergeLabels(unittest.TestCase):
         guf = UnionFindArray()
         
         # label each block independently
+        s = 0
         for i in range(2):
             for j in range(2):
                 res[i*m:(i+1)*m, j*m:(j+1)*m] = vigra.analysis.labelImageWithBackground(x[i*m:(i+1)*m, j*m:(j+1)*m])
                 uf[i, j] = UnionFindArray(res[i*m:(i+1)*m, j*m:(j+1)*m])
-        print(labels)
-        print(res)
+                offset = np.max(res[i*m:(i+1)*m, j*m:(j+1)*m])
+                for k in range(offset):
+                    guf.makeNewLabel()
+                uf[i, j].setOffset(s)
+                s += offset
+
         # merge blocks
-        mergeLabels(res[:m, m-1], res[:m, m], uf[0, 0], uf[0, 1], guf)
-        mergeLabels(res[m-1, :m], res[m, :m], uf[0, 0], uf[1, 0], guf)
-        mergeLabels(res[m:, m-1], res[m:, m], uf[1, 0], uf[1, 1], guf)
-        mergeLabels(res[m-1, m:], res[m, m:], uf[0, 1], uf[1, 1], guf)
-        
+        mergeLabels(x[:m, m-1], x[:m, m], res[:m, m-1], res[:m, m],
+                    uf[0, 0], uf[0, 1], guf)
+        mergeLabels(x[m-1, :m], x[m, :m], res[m-1, :m], res[m, :m],
+                    uf[0, 0], uf[1, 0], guf)
+        mergeLabels(x[m:, m-1], x[m:, m], res[m:, m-1], res[m:, m],
+                    uf[1, 0], uf[1, 1], guf)
+        mergeLabels(x[m-1, m:], x[m, m:], res[m-1, m:], res[m, m:],
+                    uf[0, 1], uf[1, 1], guf)
+        print("Result before any mapping")
+        print(res)
         for i in range(2):
             for j in range(2):
-                uf[i, j].finalizeGlobal(guf)
                 uf[i, j].mapArray(res[i*m:(i+1)*m, j*m:(j+1)*m])
+        print("Result after local mapping (and GUF)")
+        print(res)
+        print(guf)
+        guf.mapArray(res)
+        print("Result after global mapping")
+
         print(res)
         
+        print("Original volume and labels")
+        print(labels)
+        print(x)
+
         assertEquivalentLabeling(res, labels)
 
 
@@ -132,10 +156,7 @@ class TestUnionFind(unittest.TestCase):
                     else:
                         labels[i+1, j] = labels[i, j]
 
-        print(labels)
         uf.mapArray(labels)
-        print(labels)
-        print(uf)
         assert labels[-1, -1] != labels[0, 0]
         assert labels[-1, 0] == labels[0, 0]
 

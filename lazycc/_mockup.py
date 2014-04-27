@@ -9,18 +9,24 @@ from collections import defaultdict
 class UnionFindArray(object):
 
     def __init__(self, array=None):
-        self._global = defaultdict(lambda: False)
         if array is not None:
             values = sorted(np.unique(array))
             self._map = dict(zip(values, values))
             self._map[0] = 0
         else:
             self._map = {0: 0}
+		
+        self._offset = 0
 
     def makeUnion(self, a, b):
         assert a in self._map
         assert b in self._map
+        
+        a = self.find(a, useOffset=False)
+        b = self.find(b, useOffset=False)
+        
         # avoid cycles by choosing the smallest label as the common one
+        print("making union {} and {}".format(a, b))
         if a < b:
             self._map[b] = a
         else:
@@ -40,23 +46,14 @@ class UnionFindArray(object):
         self._map[newLabel] = newLabel
         return newLabel
 
-    def find(self, a):
+    def find(self, a, useOffset=True):
+        if a == 0:
+            return 0
         _a = self._map[a]
-        if not self.isGlobal(a) and a != _a:
+        if a != _a:
             return self.find(_a)
         else:
-            return _a
-
-    def finalizeGlobal(self, uf):
-        
-        # globalize labels
-        for k in self._map:
-            if k != 0 and not self.isGlobal(k):
-                self.setGlobal(k, uf.makeNewLabel())
-
-        # map labels
-        for k in self._map:
-            self._map[k] = uf.find(self._map[k])
+            return _a + (self._offset if useOffset else 0)
 
     def mapArray(self, arr):
         x = np.zeros((max(self._map.keys())+1,))
@@ -65,15 +62,12 @@ class UnionFindArray(object):
         x = np.abs(x).astype(np.uint32)
         arr[:] = x[arr]
 
-    def setGlobal(self, a, global_a):
-        assert not self.isGlobal(a)
-        self._map[a] = global_a
-        self._global[a] = True
-
-    def isGlobal(self, a):
-        return self._global[a]
-
     def __str__(self):
         s = "<UnionFindArray>\n{}".format(self._map)
         return s
+		
+    def setOffset(self, n):
+        self._offset = n
 
+    def __getitem__(self, key):
+        return self.find(key)

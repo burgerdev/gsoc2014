@@ -3,34 +3,38 @@
 # author: Markus Döring
 
 
-## merges the UnionFind structures of two adjacent chunks
+## join the labels of two adjacent chunks
 #
 # The boundary of the two chunks A and B is inspected and the UnionFind
 # structures are changed such that connected components have the same global 
-# label. All labels that remain local after the procedure do not traverse the
-# chunk boundary.
+# label. The labels must already be global, i.e. UF_a/UF_b point
+# the local labels in A/B to valid labels in GUF.
 #
-# @param hyperplane_a boundary in A
-# @param hyperplane_b boundary in B
-# @param UF_a local UnionFind of A
-# @param UF_a local UnionFind of B
+# @param hyperplane_a boundary in A (const)
+# @param hyperplane_b boundary in B (const)
+# @param label_hyperplane_a label boundary in A (const)
+# @param label_hyperplane_b label boundary in B (const)
+# @param UF_a hash table, mapping local labels to global labels (const)
+# @param UF_b hash table, mapping local labels to global labels (const)
 # @param GUF global UnionFind
 # @returns None
-def mergeLabels(hyperplane_a, hyperplane_b, UF_a, UF_b, GUF):
+def mergeLabels(hyperplane_a, hyperplane_b,
+                label_hyperplane_a, label_hyperplane_b,
+                UF_a, UF_b, GUF):
 
     # iterate over all pixels
-    for a, b in zip(hyperplane_a.flat, hyperplane_b.flat):
+    for x, y, a, b in zip(hyperplane_a.flat, hyperplane_b.flat,
+                          label_hyperplane_a.flat, label_hyperplane_b.flat):
 
-        if a == 0 or b == 0:
+        if a == 0 or b == 0 or x != y:
             # no real traversal
             continue
 
         if _isGlobal(a, UF_a):
             if _isGlobal(b, UF_b):
-                print("Merging {} and {}".format(a, b))
-                #print("Merging {} and {}".format(UF_a.find(a), UF_b.find(b)))
-                GUF.makeUnion(UF_a.find(a),
-                              UF_b.find(b))
+                print("Merging local labels {} and {}".format(a, b))
+                GUF.makeUnion(UF_a[a],
+                              UF_b[b])
             else:
                 # assign A's global label to B
                 UF_b.setGlobal(b, UF_a.find(a))
@@ -47,7 +51,8 @@ def mergeLabels(hyperplane_a, hyperplane_b, UF_a, UF_b, GUF):
 
 
 def _isGlobal(x, uf):
-    return uf.isGlobal(x)
+    #return uf.isGlobal(x)
+    return True
 
 
 def _getGlobalLabel(uf):
