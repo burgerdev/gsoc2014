@@ -7,6 +7,7 @@ import numpy as np
 import vigra
 
 from lazycc import mergeLabels, UnionFindArray
+from helpers import assertEquivalentLabeling
 
 
 class TestMergeLabels(unittest.TestCase):
@@ -16,33 +17,33 @@ class TestMergeLabels(unittest.TestCase):
                      [0, 0, 2]]
         self.tinyArray = np.asarray(tinyArray).astype(np.uint8)
 
-        uArray = np.zeros((10,10), dtype=np.uint8)
+        uArray = np.zeros((10, 10), dtype=np.uint8)
         uLabels = np.zeros(uArray.shape, dtype=np.uint32)
-        
+
         # horse shoe
         uArray[[2, 8], 4:9] = 255
         uLabels[[2, 8], 4:9] = 1
         uArray[2:9, 8] = 255
         uLabels[2:9:, 8] = 1
-        
+
         # square in top left corner
         uArray[0:3, 0:3] = 255
         uLabels[0:3, 0:3] = 2
-        
+
         # line crossing a border
         uArray[4:6, 1] = 255
         uLabels[4:6, 1] = 3
-        
+
         # square in the middle
         uArray[4:6, 4:6] = 255
         uLabels[4:6, 4:6] = 4
-        
+
         # line ending at boundary
         uArray[0, 4] = 13
         uLabels[0, 4] = 5
         uArray[0, 5] = 31
         uLabels[0, 5] = 6
-        
+
         self.uLabels = uLabels
         self.uArray = uArray
 
@@ -52,7 +53,7 @@ class TestMergeLabels(unittest.TestCase):
         planeInc = plane.copy()
         labelsInc = labels.copy()
         labelsInc[planeInc > 0] += 1
-        
+
         uf = UnionFindArray(labels)
         ufInc = UnionFindArray(labelsInc)
         ufInc.setOffset(2)
@@ -70,7 +71,7 @@ class TestMergeLabels(unittest.TestCase):
         plane *= planeInc
         assert plane[0, 0] > 0
         assert plane[-1, -1] > 0
-        
+
     def testBlockwiseCC(self):
         x = self.uArray
         m = x.shape[0]//2
@@ -78,7 +79,7 @@ class TestMergeLabels(unittest.TestCase):
         res = np.zeros(x.shape, dtype=np.uint32)
         uf = np.empty((2, 2), dtype=np.object)
         guf = UnionFindArray()
-        
+
         # label each block independently
         s = 0
         for i in range(2):
@@ -112,7 +113,7 @@ class TestMergeLabels(unittest.TestCase):
         print("Result after global mapping")
 
         print(res)
-        
+
         print("Original volume and labels")
         print(labels)
         print(x)
@@ -159,31 +160,4 @@ class TestUnionFind(unittest.TestCase):
         uf.mapArray(labels)
         assert labels[-1, -1] != labels[0, 0]
         assert labels[-1, 0] == labels[0, 0]
-
-
-def assertEquivalentLabeling(labelImage, referenceImage):
-    x = labelImage
-    y = referenceImage
-    assert np.all(x.shape == y.shape),\
-        "Shapes do not agree ({} vs {})".format(x.shape, y.shape)
-
-    # identify labels used in x
-    labels = set(x.flat)
-    for label in labels:
-        if label == 0:
-            continue
-        idx = np.where(x == label)
-        refblock = y[idx]
-        # check that labels are the same
-        corner = [a[0] for a in idx]
-        print("Inspecting region of size {} at {}".format(refblock.size, corner))
-
-        assert np.all(refblock == refblock[0]),\
-            "Uniformly labeled region at coordinates {} has more than one label in the reference image".format(corner)
-        # check that nothing else is labeled with this label
-        m = refblock.size
-        n = (y == refblock[0]).sum()
-        assert m == n, "There are more pixels with (reference-)label {} than pixels with label {}.".format(refblock[0], label)
-
-    assert len(labels) == len(set(y.flat)), "The number of labels does not agree, perhaps some region was missed"
 

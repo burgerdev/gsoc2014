@@ -2,11 +2,18 @@
 # coding: utf-8
 # author: Markus Döring
 
+import numpy as np
+import vigra
+import logging
+
 from lazyflow.operator import Operator, InputSlot, OutputSlot
 from lazyflow.rtype import SubRegion
+from lazyflow.operators import OpCompressedCache
 
 from _merge import mergeLabels
-from _tools import LabelGraph
+from _mockup import UnionFindArray
+
+logger = logging.getLogger(__name__)
 
 
 ## 3d data only, xyz
@@ -14,6 +21,7 @@ class OpLazyCC(Operator):
     Input = InputSlot()
     ChunkShape = InputSlot()
     Output = OutputSlot()
+
     _FakeOutput = OutputSlot()
 
     def __init__(self, *args, **kwargs):
@@ -21,6 +29,7 @@ class OpLazyCC(Operator):
 
         self._cache = OpCompressedCache(parent=self)
         self._cache.Input.connect(self._FakeOutput)
+        self._cache.BlockShape.connect(self.ChunkShape)
 
     def setupOutputs(self):
         self.Output.meta.assignFrom(self.Input.meta)
@@ -36,27 +45,38 @@ class OpLazyCC(Operator):
         self._chunkShape = np.asarray(chunkShape, dtype=np.int)
 
         # keep track of number of labels in chunk (-1 == not labeled yet)
-        #FIXME need int64 here, but we are screwed anyway if the number of 
-        # labels in a single chunk exceeds 2**31
-        self._numLabels = -np.ones(self._chunkArrayShape, dtype=np.int32)
+        self._numLabels = -np.ones(self._chunkArrayShape, dtype=np.int64)
 
         # keep track of what has been finalized
         self._isFinal = np.zeros(self._chunkArrayShape, dtype=np.bool)
 
         # offset (global labels - local labels) per chunk
-        self._globalLabelOffset = -np.ones(self._chunkArrayShape, dtype=np.int32)
+        self._globalLabelOffset = -np.ones(self._chunkArrayShape,
+                                           dtype=np.int64)
 
-        # label adjacency graph
-        self._labelGraph = LabelGraph()
+        # global union find data structure
+        self._uf = UnionFindArray()
 
-    ## grow the requested region such that all labels inside that region are final
+    def execute(self, slot, subindex, roi, result):
+        # roi is guaranteed to be just one chunk, but whatever
+        assert slot is not self._FakeOutput, "request to _FakeOutput: {}".format(roi)
+
+        chunks = self._roiToChunkIndex(roi)
+        for chunk in chunks:
+            self._finalize(chunk)
+
+        self._mapArray(roi, result)
+
+    def propagateDirty(self, slot, subindex, roi):
+        # TODO
+        self.Output.setDirty(slice(None))
+
+    ## grow the requested region such that all labels inside that region are
+    # final
     # @param chunkIndex the index of the chunk to finalize
-    # @param labels the labels that need to be finalized
-    def _finalizeChunk(self, chunkIndex, labels):
-        #FIXME lock this in case some other thread wants to finalize the same chunk
-        if self._isFinal[chunkIndex]:
-            return
-
+    # @param labels array of labels that need to be finalized (omit for all)
+    def _finalize(self, chunkIndex, labels=None):
+        logger.info("Finalizing {} ...".format(chunkIndex))
         # get a list of neighbours that have to be checked
         neighbours = self._generateNeighbours(chunkIndex)
 
@@ -67,14 +87,21 @@ class OpLazyCC(Operator):
             self._label(otherChunk)
             self._merge(chunkIndex, otherChunk)
 
-            adjacentLabels = self._getAdjacentLabels(chunkIndex, otherChunk)
-            adjacentlabels = map(lambda s: s[1], adjacentLabels)
+        # FIXME critical section: the global labels must not change during the
+        # next 3 lines
+        if labels is None:
+            labels = self._getLabelsForChunk(chunkIndex)
+        otherLabels = map(lambda x: self._getLabelsForChunk(x), neighbours)
 
-            self._finalize(otherChunk, adjacentLabels)
+        for i, l in zip(neighbours, otherLabels):
+            d = np.intersect1d(labels, l)
+            if len(d) > 0:
+                # start DFS recursion
+                self._finalize(i, labels=d)
 
     ## label a chunk and store information
     def _label(self, chunkIndex):
-        #FIXME prevent other threads from labeling this block
+        # FIXME prevent other threads from labeling this block
         if self._numLabels[chunkIndex] >= 0:
             # this chunk is already labeled
             return
@@ -84,16 +111,21 @@ class OpLazyCC(Operator):
         inputChunk = self.Input.get(roi).wait()
 
         # label the raw data
-        labeled = vigra.labelVolumeWithBackground(temp)
+        logger.info("Labeling {} ...".format(chunkIndex))
+        labeled = vigra.analysis.labelVolumeWithBackground(inputChunk)
+        logger.info("Done labeling")
+        del inputChunk
 
         # store the labeled data in cache
+        logger.info("Caching {} into {} ...".format(chunkIndex, roi))
         self._cache.setInSlot(self._cache.Input, (), roi, labeled)
+        logger.info("Done caching")
 
         # update the labeling information
         numLabels = labeled.max()  # we ignore 0 here
         self._numLabels[chunkIndex] = numLabels
         if numLabels > 0:
-            #FIXME critical section here
+            # FIXME critical section here
             # get 1 label that determines the offset
             offset = self._uf.makeNewLabel()
             # the offset is such that label 1 in the local chunk maps to
@@ -104,28 +136,52 @@ class OpLazyCC(Operator):
             for i in range(numLabels-1):
                 self._uf.makeNewLabel()
 
-    ## merge chunks with callback that updates adjacency graph
+    # merge chunks
     def _merge(self, chunkA, chunkB):
-        #TODO
+        # TODO
         pass
+
+    def _mapArray(self, roi, result):
+        # TODO perhaps with pixeloperator?
+        indices = self._roiToChunkIndex(roi)
+        for idx in indices:
+            newroi = self._chunkIndexToRoi(idx)
+            newroi.stop = np.minimum(newroi.stop, roi.stop)
+            labels = self._getLabelsForChunk(idx, mapping=True)
+            chunk = self._cache.Output.get(newroi).wait()
+            newroi.start -= roi.start
+            newroi.stop -= roi.start
+            s = newroi.toSlice()
+            result[s] = labels[chunk]
 
     def _chunkIndexToRoi(self, index):
         shape = self.Input.meta.shape
-        stop = self._chunkShape
+        start = self._chunkShape * np.asarray(index)
+        stop = self._chunkShape * (np.asarray(index) + 1)
         stop = np.where(stop > shape, shape, stop)
-        start = stop * 0
         roi = SubRegion(self.Input,
                         start=tuple(start), stop=tuple(stop))
         return roi
 
-    def _getAdjacentLabels(self, indexA, indexB):
-        return []
+    def _roiToChunkIndex(self, roi):
+        cs = self._chunkShape
+        start = np.asarray(roi.start)
+        stop = np.asarray(roi.stop)
+        start_cs = start / cs
+        stop_cs = stop / cs
+        stop_mod = stop % cs
+        stop_cs += np.where(stop_mod, 1, 0)
+        chunks = []
+        for x in range(start_cs[0], stop_cs[0]):
+            for y in range(start_cs[1], stop_cs[1]):
+                for z in range(start_cs[2], stop_cs[2]):
+                    chunks.append((x, y, z))
+        return chunks
 
     def _generateNeighbours(self, chunkIndex):
-        #TODO don't add neighbours that have been computed already
         n = []
         idx = np.asarray(chunkIndex, dtype=np.int)
-        for i in len(chunkIndex):
+        for i in range(len(chunkIndex)):
             if idx[i] > 0:
                 new = idx.copy()
                 new[i] -= 1
@@ -136,3 +192,16 @@ class OpLazyCC(Operator):
                 n.append(tuple(new))
         return n
 
+    # returns an array of labels if mapping is False, a mapping of labels
+    # to global labels otherwise
+    def _getLabelsForChunk(self, chunkIndex, mapping=False):
+        offset = self._globalLabelOffset[chunkIndex]
+        numLabels = self._numLabels[chunkIndex]
+        labels = np.arange(numLabels) + (1 + offset)
+        if not mapping:
+            return np.unique(map(lambda i: self._uf.find(i), labels))
+        else:
+            out = np.zeros((numLabels+1,), dtype=np.uint64)
+            for i in range(1, numLabels+1):
+                out[i] = self._uf.find(offset+i)
+            return out

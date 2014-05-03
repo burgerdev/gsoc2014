@@ -6,6 +6,7 @@ import unittest
 
 from lazycc import LabelGraph
 
+
 class TestLabelGraph(unittest.TestCase):
 
     def setUp(self):
