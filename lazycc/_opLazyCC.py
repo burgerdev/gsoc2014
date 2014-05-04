@@ -47,8 +47,9 @@ class OpLazyCC(Operator):
         # keep track of number of labels in chunk (-1 == not labeled yet)
         self._numLabels = -np.ones(self._chunkArrayShape, dtype=np.int64)
 
-        # keep track of what has been finalized
-        self._isFinal = np.zeros(self._chunkArrayShape, dtype=np.bool)
+        # keep track of the labels that have been finalized
+        self._finalizedLabels = np.empty(self._chunkArrayShape,
+                                         dtype=np.object)
 
         # offset (global labels - local labels) per chunk
         self._globalLabelOffset = -np.ones(self._chunkArrayShape,
@@ -77,6 +78,7 @@ class OpLazyCC(Operator):
     # @param labels array of labels that need to be finalized (omit for all)
     def _finalize(self, chunkIndex, labels=None):
         logger.info("Finalizing {} ...".format(chunkIndex))
+
         # get a list of neighbours that have to be checked
         neighbours = self._generateNeighbours(chunkIndex)
 
@@ -88,10 +90,19 @@ class OpLazyCC(Operator):
             self._merge(chunkIndex, otherChunk)
 
         # FIXME critical section: the global labels must not change during the
-        # next 3 lines
+        # next x lines
         if labels is None:
             labels = self._getLabelsForChunk(chunkIndex)
+        if self._finalizedLabels[chunkIndex] is None:
+            self._finalizedLabels[chunkIndex] = np.zeros((0,),
+                                                         dtype=np.uint64)
         otherLabels = map(lambda x: self._getLabelsForChunk(x), neighbours)
+
+        # let the others know that we are finalizing this chunk
+        finalized = map(self._uf.find, self._finalizedLabels[chunkIndex])
+        now_finalized = np.union1d(finalized, labels)
+        self._finalizedLabels[chunkIndex] = now_finalized
+        labels = np.setdiff1d(labels, finalized)
 
         for i, l in zip(neighbours, otherLabels):
             d = np.intersect1d(labels, l)
@@ -138,13 +149,22 @@ class OpLazyCC(Operator):
 
     # merge chunks
     def _merge(self, chunkA, chunkB):
-        # TODO implement boundary extraction
-        '''
+
+        hyperplane_index_a, hyperplane_index_b = \
+            self._chunkIndexToHyperplane(chunkA, chunkB)
+
+        hyperplane_a = self.Input[hyperplane_index_a].wait()
+        hyperplane_b = self.Input[hyperplane_index_b].wait()
+        label_hyperplane_a = self._cache.Output[hyperplane_index_a].wait()
+        label_hyperplane_b = self._cache.Output[hyperplane_index_b].wait()
+
+        UF_a = self._getLabelsForChunk(chunkA, mapping=True)
+        UF_b = self._getLabelsForChunk(chunkB, mapping=True)
+
         mergeLabels(hyperplane_a, hyperplane_b,
-                label_hyperplane_a, label_hyperplane_b,
-                UF_a, UF_b, GUF)
-        '''
-        pass
+                    label_hyperplane_a, label_hyperplane_b,
+                    UF_a, UF_b, self._uf)
+
 
     def _mapArray(self, roi, result):
         # TODO perhaps with pixeloperator?
@@ -182,6 +202,26 @@ class OpLazyCC(Operator):
                 for z in range(start_cs[2], stop_cs[2]):
                     chunks.append((x, y, z))
         return chunks
+
+    def _chunkIndexToHyperplane(self, chunkA, chunkB):
+        rev = False
+        for i in range(len(chunkA)):
+            if chunkA[i] > chunkB[i]:
+                rev = True
+                chunkA, chunkB = chunkB, chunkA
+            if chunkA[i] < chunkB[i]:
+                roiA = self._chunkIndexToRoi(chunkA)
+                roiB = self._chunkIndexToRoi(chunkB)
+                start = np.asarray(roiA.start)
+                start[i] = roiA.stop[i] - 1
+                roiA.start = tuple(start)
+                stop = np.asarray(roiB.stop)
+                stop[i] = roiB.start[i] + 1
+                roiB.stop = tuple(stop)
+        if rev:
+            return roiB.toSlice(), roiA.toSlice()
+        else:
+            return roiA.toSlice(), roiB.toSlice()
 
     def _generateNeighbours(self, chunkIndex):
         n = []

@@ -2,6 +2,7 @@
 # coding: utf-8
 # author: Markus Döring
 
+import numpy as np
 
 ## join the labels of two adjacent chunks
 #
@@ -21,40 +22,15 @@
 def mergeLabels(hyperplane_a, hyperplane_b,
                 label_hyperplane_a, label_hyperplane_b,
                 UF_a, UF_b, GUF):
+    
+    # the indices where objects are adjacent
+    # it is sufficient to check for one label image to be non-zero,
+    # the other must be non-zero as well if the same labeling function
+    # is used
+    idx = np.logical_and(hyperplane_a == hyperplane_b,
+                         label_hyperplane_a > 0)
 
-    # iterate over all pixels
-    for x, y, a, b in zip(hyperplane_a.flat, hyperplane_b.flat,
-                          label_hyperplane_a.flat, label_hyperplane_b.flat):
-
-        if a == 0 or b == 0 or x != y:
-            # no real traversal
-            continue
-
-        if _isGlobal(a, UF_a):
-            if _isGlobal(b, UF_b):
-                print("Merging local labels {} and {}".format(a, b))
-                GUF.makeUnion(UF_a[a],
-                              UF_b[b])
-            else:
-                # assign A's global label to B
-                UF_b.setGlobal(b, UF_a.find(a))
-
-        else:
-            if _isGlobal(b, UF_b):
-                # assign B's global label to A
-                UF_a.setGlobal(a, UF_b.find(b))
-            else:
-                # assign a new global label to both
-                label = _getGlobalLabel(GUF)
-                UF_a.setGlobal(a, label)
-                UF_b.setGlobal(b, label)
-
-
-def _isGlobal(x, uf):
-    #return uf.isGlobal(x)
-    return True
-
-
-def _getGlobalLabel(uf):
-    return uf.makeNewLabel()
-
+    # merge each unique pair of labels
+    for label_a, label_b in set(zip(label_hyperplane_a[idx],
+                                    label_hyperplane_b[idx])):
+        GUF.makeUnion(UF_a[label_a], UF_b[label_b])
