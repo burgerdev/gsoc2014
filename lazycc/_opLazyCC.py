@@ -138,7 +138,12 @@ class OpLazyCC(Operator):
 
     # merge chunks
     def _merge(self, chunkA, chunkB):
-        # TODO
+        # TODO implement boundary extraction
+        '''
+        mergeLabels(hyperplane_a, hyperplane_b,
+                label_hyperplane_a, label_hyperplane_b,
+                UF_a, UF_b, GUF)
+        '''
         pass
 
     def _mapArray(self, roi, result):
