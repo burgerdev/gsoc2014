@@ -11,7 +11,7 @@ from lazyflow.rtype import SubRegion
 from lazyflow.operators import OpCompressedCache
 
 from _merge import mergeLabels
-from _mockup import UnionFindArray
+from lazycc import UnionFindArray
 
 logger = logging.getLogger(__name__)
 

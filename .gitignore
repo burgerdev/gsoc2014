@@ -2,6 +2,9 @@
 *.swp
 *~
 
+# CMake build dir
+build
+
 # Python files
 *.pyc
 
