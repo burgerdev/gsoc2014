@@ -44,24 +44,19 @@ class TestUnionFind(unittest.TestCase):
             for j in range(x.shape[1]):
                 if x[i, j] == 0:
                     continue
-                if labels[i, j] == 0:
-                    label = uf.makeNewLabel()
-                    print("created label {}".format(label))
-                    labels[i, j] = label
-                # right
-                if j < x.shape[1]-1 and x[i, j+1] == x[i, j]:
-                    if labels[i, j+1] > 0:
-                        uf.makeUnion(labels[i, j], labels[i, j+1])
-                    else:
-                        labels[i, j+1] = labels[i, j]
+                currentLabel = uf.nextFreeLabel()
+                # left
+                if j > 0 and x[i, j-1] == x[i, j]:
+                    uf.makeUnion(currentLabel, labels[i, j-1])
 
                 # bottom
-                if i < x.shape[0]-1 and x[i+1, j] == x[i, j]:
-                    if labels[i+1, j] > 0:
-                        uf.makeUnion(labels[i, j], labels[i+1, j])
-                    else:
-                        labels[i+1, j] = labels[i, j]
+                if i > 0 and x[i-1, j] == x[i, j]:
+                    uf.makeUnion(currentLabel, labels[i-1, j])
+                
+                labels[i, j] = uf.finalizeLabel(currentLabel)
 
         mapArray(uf, labels)
+        print(x)
+        print(labels)
         assert labels[-1, -1] != labels[0, 0]
         assert labels[-1, 0] == labels[0, 0]
