@@ -6,8 +6,23 @@ import unittest
 import numpy as np
 import vigra
 
-from lazycc import mergeLabels, UnionFindArray, mapArray
+from lazycc import *
 from helpers import assertEquivalentLabeling
+
+
+def mapArray(uf, x):
+    n = uf.nextFreeLabel()
+    T = type(uf)
+    if T == UnionFindUInt8:
+        dt = np.uint8
+    elif T == UnionFindUInt32:
+        dt = np.uint32
+    elif T == UnionFindUInt64:
+        dt = np.uint64
+    s = np.arange(n, dtype=dt)
+    for i in range(len(s)):
+        s[i] = uf.find(s[i])
+    x[:] = s[x]
 
 
 class TestUnionFind(unittest.TestCase):
@@ -60,3 +75,6 @@ class TestUnionFind(unittest.TestCase):
         print(labels)
         assert labels[-1, -1] != labels[0, 0]
         assert labels[-1, 0] == labels[0, 0]
+
+    def testSafety(self):
+        uf = UnionFindArray(np.uint8(255))

@@ -21,12 +21,6 @@ def UnionFindArray(x):
     else:
         raise ValueError("Unsupported dtype {} for UnionFindArray".format(x.dtype))
 
-def mapArray(uf, x):
-    n = uf.nextFreeLabel()
-    s = np.arange(n, dtype=_dtypeFromType(type(uf)))
-    for i in range(len(s)):
-        s[i] = uf.find(s[i])
-    x[:] = s[x]
 
 def _dtypeFromType(T):
     if T == UnionFindUInt8:
@@ -39,7 +33,8 @@ def _dtypeFromType(T):
         raise ValueError()
 
 
-from _merge import mergeLabels
+from _lazycc_cxx import mergeLabels
+#from _merge import mergeLabels
 from _opLazyCC import OpLazyCC
 from _opBlockwiseCC import OpBlockwiseCC
 from _tools import LabelGraph, index2dim, dim2Index

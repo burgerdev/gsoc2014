@@ -10,7 +10,7 @@ from lazyflow.operator import Operator, InputSlot, OutputSlot
 from lazyflow.rtype import SubRegion
 from lazyflow.operators import OpCompressedCache
 
-from _merge import mergeLabels
+from lazycc import mergeLabels
 from lazycc import UnionFindArray
 
 logger = logging.getLogger(__name__)
@@ -35,6 +35,7 @@ class OpLazyCC(Operator):
         self.Output.meta.assignFrom(self.Input.meta)
         self.Output.meta.dtype = np.uint32
         self._FakeOutput.meta.assignFrom(self.Output.meta)
+        assert self.Input.meta.dtype in [np.uint8, np.uint32, np.uint64]
 
         # chunk array shape calculation
         shape = self.Input.meta.shape
@@ -52,11 +53,11 @@ class OpLazyCC(Operator):
                                          dtype=np.object)
 
         # offset (global labels - local labels) per chunk
-        self._globalLabelOffset = -np.ones(self._chunkArrayShape,
-                                           dtype=np.int64)
+        self._globalLabelOffset = np.ones(self._chunkArrayShape,
+                                          dtype=np.uint64)
 
         # global union find data structure
-        self._uf = UnionFindArray()
+        self._uf = UnionFindArray(np.uint64(1))
 
     def execute(self, slot, subindex, roi, result):
         # roi is guaranteed to be just one chunk, but whatever
@@ -99,8 +100,12 @@ class OpLazyCC(Operator):
         otherLabels = map(lambda x: self._getLabelsForChunk(x), neighbours)
 
         # let the others know that we are finalizing this chunk
+        finalizedLabels = self._finalizedLabels[chunkIndex]
+        print(finalizedLabels.shape, finalizedLabels.dtype)
+        print(labels.shape, labels.dtype)
+        print("----")
         finalized = map(self._uf.find, self._finalizedLabels[chunkIndex])
-        now_finalized = np.union1d(finalized, labels)
+        now_finalized = np.union1d(finalized, labels).astype(np.uint64)
         self._finalizedLabels[chunkIndex] = now_finalized
         labels = np.setdiff1d(labels, finalized)
 
@@ -162,7 +167,8 @@ class OpLazyCC(Operator):
         UF_b = self._getLabelsForChunk(chunkB, mapping=True)
 
         mergeLabels(hyperplane_a, hyperplane_b,
-                    label_hyperplane_a, label_hyperplane_b,
+                    label_hyperplane_a.astype(np.uint64),
+                    label_hyperplane_b.astype(np.uint64),
                     UF_a, UF_b, self._uf)
 
 
@@ -242,11 +248,12 @@ class OpLazyCC(Operator):
     def _getLabelsForChunk(self, chunkIndex, mapping=False):
         offset = self._globalLabelOffset[chunkIndex]
         numLabels = self._numLabels[chunkIndex]
-        labels = np.arange(numLabels) + (1 + offset)
+        labels = np.arange(1, numLabels+1, dtype=np.uint64) + offset
         if not mapping:
-            return np.unique(map(lambda i: self._uf.find(i), labels))
+            return np.unique(map(lambda i: self._uf.find(i), labels)).astype(np.uint64)
         else:
+            #TODO optimize
             out = np.zeros((numLabels+1,), dtype=np.uint64)
-            for i in range(1, numLabels+1):
+            for i in np.arange(1, numLabels+1, dtype=np.uint64):
                 out[i] = self._uf.find(offset+i)
             return out

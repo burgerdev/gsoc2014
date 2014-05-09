@@ -1,5 +1,5 @@
 // define PY_ARRAY_UNIQUE_SYMBOL (required by the numpy C-API)
-#define PY_ARRAY_UNIQUE_SYMBOL my_module_PyArray_API
+#define PY_ARRAY_UNIQUE_SYMBOL lazycc_PyArray_API
 
 #include <string>
 
@@ -11,6 +11,9 @@
 
 // include for the union find data structure
 #include <vigra/union_find.hxx>
+
+// my includes
+#include "mergeLabels.hxx"
 
 /* 
  * register converters for numpy scalars 
@@ -101,4 +104,6 @@ BOOST_PYTHON_MODULE_INIT(_lazycc_cxx)
     vigra::import_vigranumpy();
 
     exportVigraUnionFindArray();
+    
+    exportMergeLabels();
 }
