@@ -40,6 +40,8 @@ class OpLazyCC(Operator):
         # chunk array shape calculation
         shape = self.Input.meta.shape
         chunkShape = self.ChunkShape.value
+        assert len(shape) == len(chunkShape),\
+            "Encountered an invalid chunkShape"
         f = lambda i: shape[i]//chunkShape[i] + (1 if shape[i] % chunkShape[i]
                                                  else 0)
         self._chunkArrayShape = tuple(map(f, range(3)))
@@ -60,7 +62,6 @@ class OpLazyCC(Operator):
         self._uf = UnionFindArray(np.uint64(1))
 
     def execute(self, slot, subindex, roi, result):
-        # roi is guaranteed to be just one chunk, but whatever
         assert slot is not self._FakeOutput, "request to _FakeOutput: {}".format(roi)
 
         chunks = self._roiToChunkIndex(roi)
@@ -70,7 +71,10 @@ class OpLazyCC(Operator):
         self._mapArray(roi, result)
 
     def propagateDirty(self, slot, subindex, roi):
-        # TODO
+        # TODO: this is already correct, but may be over-zealous
+        # we would have to label each chunk that was set dirty and check
+        # for changed labels. THerefore, we would have to check if the
+        # dirty region is 'small enough', etc etc.
         self.Output.setDirty(slice(None))
 
     ## grow the requested region such that all labels inside that region are
@@ -101,9 +105,6 @@ class OpLazyCC(Operator):
 
         # let the others know that we are finalizing this chunk
         finalizedLabels = self._finalizedLabels[chunkIndex]
-        print(finalizedLabels.shape, finalizedLabels.dtype)
-        print(labels.shape, labels.dtype)
-        print("----")
         finalized = map(self._uf.find, self._finalizedLabels[chunkIndex])
         now_finalized = np.union1d(finalized, labels).astype(np.uint64)
         self._finalizedLabels[chunkIndex] = now_finalized
@@ -250,10 +251,18 @@ class OpLazyCC(Operator):
         numLabels = self._numLabels[chunkIndex]
         labels = np.arange(1, numLabels+1, dtype=np.uint64) + offset
         if not mapping:
-            return np.unique(map(lambda i: self._uf.find(i), labels)).astype(np.uint64)
+            return np.unique(map(self._uf.find, labels)).astype(np.uint64)
         else:
-            #TODO optimize
-            out = np.zeros((numLabels+1,), dtype=np.uint64)
-            for i in np.arange(1, numLabels+1, dtype=np.uint64):
-                out[i] = self._uf.find(offset+i)
+            # we got 'numLabels' real labels, and one label '0', so our
+            # output has to have numLabels+1 elements
+            idx = np.arange(numLabels+1, dtype=np.uint64)
+            
+            # real labels start at offset+1 and go up to (including)
+            # numLabels+offset
+            idx += offset
+            
+            # 0 always maps to 0!
+            idx[0] = 0
+            
+            out = np.asarray(map(self._uf.find, idx), dtype=np.uint64)
             return out

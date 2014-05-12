@@ -16,6 +16,8 @@ from lazyflow.operator import Operator
 from lazyflow.slot import InputSlot, OutputSlot
 from lazyflow.rtype import SubRegion
 
+from lazyflow.operators import OpArrayPiper, OpCompressedCache
+
 
 class TestOpLazyCC(unittest.TestCase):
 
@@ -74,6 +76,39 @@ class TestOpLazyCC(unittest.TestCase):
         print(blocks[..., 0])
         assertEquivalentLabeling(blocks, out)
 
+    def testLazyness(self):
+        g = Graph()
+        vol = np.asarray(
+            [[0, 0, 0, 0, 0, 0, 0, 0, 0],
+             [0, 1, 1, 1, 1, 0, 0, 0, 0],
+             [0, 1, 0, 0, 0, 0, 0, 0, 0],
+             [0, 1, 0, 0, 0, 0, 0, 0, 0],
+             [0, 1, 0, 0, 0, 0, 0, 0, 0],
+             [0, 0, 0, 0, 0, 0, 0, 0, 0],
+             [0, 0, 0, 0, 0, 0, 0, 0, 0],
+             [0, 0, 0, 0, 0, 0, 0, 0, 0],
+             [0, 0, 0, 0, 0, 0, 0, 0, 0]], dtype=np.uint8)
+        vol = vigra.taggedView(vol, axistags='xy').withAxes(*'xyz')
+        chunkShape = (3, 3, 1)
+        
+        opCount = OpExecuteCounter(graph=g)
+        opCount.Input.setValue(vol)
+        
+        opCache = OpCompressedCache(graph=g)
+        opCache.Input.connect(opCount.Output)
+        opCache.BlockShape.setValue(chunkShape)
+        
+        op = OpLabelVolume(graph=g)
+        op.Input.connect(opCache.Output)
+        op.ChunkShape.setValue(chunkShape)
+        
+        out = op.Output[:3, :3].wait()
+        n = 6
+        assert opCount.numCalls <= n,\
+            "Executed {} times (allowed: {})".format(opCount.numCalls,
+                                                     n)
+        
+
     def testConsistency(self):
         vol = np.zeros((1000, 100, 10))
         vol = vol.astype(np.uint8)
@@ -89,42 +124,31 @@ class TestOpLazyCC(unittest.TestCase):
         out2 = op.Output[500:, ...].wait()
         assert out1[0, 0, 0] != out2[499, 0, 0]
 
-    @unittest.expectedFailure
     def testSetDirty(self):
         g = Graph()
-        vol = np.zeros((5, 2, 200, 100, 10))
+        vol = np.zeros((200, 100, 10))
         vol = vol.astype(np.uint8)
-        vol = vigra.taggedView(vol, axistags='tcxyz')
+        vol = vigra.taggedView(vol, axistags='xyz')
         vol[:200, ...] = 1
         vol[800:, ...] = 1
 
         op = OpLabelVolume(graph=g)
-        op.Method.setValue(self.method)
+        op.ChunkShape.setValue((100, 20, 5))
         op.Input.setValue(vol)
 
         opCheck = DirtyAssert(graph=g)
         opCheck.Input.connect(op.Output)
-        opCheck.willBeDirty(1, 1)
 
-        out = op.Output[...].wait()
+        out = op.Output[:100, :20, :5].wait()
 
         roi = SubRegion(op.Input,
-                        start=(1, 1, 0, 0, 0),
-                        stop=(2, 2, 200, 100, 10))
-        with self.assertRaises(DirtyAssert.PropagateDirtyCalled):
+                        start=(0, 0, 0),
+                        stop=(200, 100, 10))
+        with self.assertRaises(PropagateDirtyCalled):
             op.Input.setDirty(roi)
 
         opCheck.Input.disconnect()
-        opCheck.Input.connect(op.CachedOutput)
-        opCheck.willBeDirty(1, 1)
 
-        out = op.Output[...].wait()
-
-        roi = SubRegion(op.Input,
-                        start=(1, 1, 0, 0, 0),
-                        stop=(2, 2, 200, 100, 10))
-        with self.assertRaises(PropagateDirtyCalled):
-            op.Input.setDirty(roi)
 
     @unittest.expectedFailure
     def testUnsupported(self):
@@ -186,6 +210,30 @@ class TestOpLazyCC(unittest.TestCase):
                     assertEquivalentLabeling(1-vol[..., c, t], out.squeeze())
                 else:
                     assertEquivalentLabeling(vol[..., c, t], out.squeeze())
+
+
+class OpExecuteCounter(OpArrayPiper):
+
+    def __init__(self, *args, **kwargs):
+        self.numCalls = 0
+        super(OpExecuteCounter, self).__init__(*args, **kwargs)
+
+    def execute(self, slot, subindex, roi, result):
+        self.numCalls += 1
+        super(OpExecuteCounter, self).execute(slot, subindex, roi, result)
+
+
+class DirtyAssert(Operator):
+    Input = InputSlot()
+
+    def propagateDirty(self, slot, subindex, roi):
+        assert np.all(roi.start == 0)
+        assert np.all(roi.stop == self.Input.meta.shape)
+        raise PropagateDirtyCalled()
+
+
+class PropagateDirtyCalled(Exception):
+    pass
 
 
 if __name__ == "__main__":
