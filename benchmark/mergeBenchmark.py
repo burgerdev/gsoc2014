@@ -6,7 +6,7 @@ from lazycc._merge import mergeLabels as pyMergeLabels
 from lazycc._lazycc_cxx import mergeLabels as cMergeLabels
 from lazycc import UnionFindArray
 
-from timeit import timeit
+from timeit import timeit, repeat
 
 import numpy as np
 import vigra
@@ -15,8 +15,8 @@ import vigra
 if __name__ == "__main__":
     import mpi4py
 
-    x = np.random.randint(255, size=(100, 100, 10)).astype(np.uint8)
-    y = np.random.randint(255, size=(100, 100, 10)).astype(np.uint8)
+    x = np.random.randint(255, size=(100, 100, 100)).astype(np.uint8)
+    y = np.random.randint(255, size=(100, 100, 100)).astype(np.uint8)
     
     uf = UnionFindArray(np.uint32(1))
     
@@ -38,7 +38,8 @@ if __name__ == "__main__":
     cmd = "{}(x, y, labels_x, labels_y, xmap, ymap, uf)"
     
     for impl in ["pyMergeLabels", "cMergeLabels"]:
-        res = timeit(cmd.format(impl), setup=setup.format(impl), number=10)
-        print("{} for shape {}:".format(impl, x.shape))
-        print("    {:.3f}s".format(res))
+        print("{} for shape {}:".format(cmd.format(impl), x.shape))
+        res = repeat(cmd.format(impl), setup=setup.format(impl),
+                     repeat=10, number=1)
+        print("    " + " ".join(["{:.3f}s".format(r) for r in res]))
 
