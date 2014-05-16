@@ -17,12 +17,12 @@ class TestMergeLabels(unittest.TestCase):
         pass
 
     def testTheOneAndOnly(self):
-        left = np.asarray([0, 0, 1, 3], dtype=np.uint8)
-        right = np.asarray([0, 0, 2, 3], dtype=np.uint8)
-        llabels = np.asarray([0, 1, 2, 3], dtype=np.uint32)
-        rlabels = np.asarray([0, 1, 2, 3], dtype=np.uint32)
-        lmap = llabels.copy()
-        rmap = rlabels.copy() + 4
+        left = np.asarray([0, 0, 1, 3], dtype=np.uint8)[:, np.newaxis, np.newaxis]
+        right = np.asarray([0, 0, 2, 3], dtype=np.uint8)[:, np.newaxis, np.newaxis]
+        llabels = np.asarray([0, 1, 2, 3], dtype=np.uint32)[:, np.newaxis, np.newaxis]
+        rlabels = np.asarray([0, 1, 2, 3], dtype=np.uint32)[:, np.newaxis, np.newaxis]
+        lmap = llabels.copy().squeeze()
+        rmap = rlabels.copy().squeeze() + 4
         rmap[0] = 0
         uf = UnionFindArray(rmap)
         mergeLabels(left, right, llabels, rlabels, lmap, rmap, uf)
@@ -35,11 +35,10 @@ class TestMergeLabels(unittest.TestCase):
         assert uf.find(6) != uf.find(2)
 
     def testVariousArrays(self):
-        for d in range(1,5):
-            for pt in (np.uint8, np.uint32, np.uint64):
-                for lt in (np.uint8, np.uint32, np.uint64):
+        for d in range(3, 4):
+            for pt in (np.uint8, np.uint32, np.uint64, np.float32):
+                for lt in (np.uint32,):
                     print("{}-dim, pixel type: {}, label type: {}".format(d, pt, lt))
-                    print("Using {}MB memory...".format(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1000))
                     shape = (5,)*d
 
                     maxInt = 256**2

@@ -21,16 +21,12 @@ import numpy as np
 # @returns None
 def mergeLabels(hyperplane_a, hyperplane_b,
                 label_hyperplane_a, label_hyperplane_b,
-                UF_a, UF_b, GUF):
+                mapping_a, mapping_b, GUF):
     
     # the indices where objects are adjacent
-    # it is sufficient to check for one label image to be non-zero,
-    # the other must be non-zero as well if the same labeling function
-    # is used
-    idx = np.logical_and(hyperplane_a == hyperplane_b,
-                         label_hyperplane_a > 0)
+    idx = hyperplane_a == hyperplane_b
 
-    # merge each unique pair of labels
-    for label_a, label_b in set(zip(label_hyperplane_a[idx],
-                                    label_hyperplane_b[idx])):
-        GUF.makeUnion(UF_a[label_a], UF_b[label_b])
+    # merge each pair of labels
+    for label_a, label_b in zip(label_hyperplane_a[idx],
+                                label_hyperplane_b[idx]):
+        GUF.makeUnion(mapping_a[label_a], mapping_b[label_b])

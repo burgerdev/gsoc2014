@@ -8,12 +8,19 @@
 #include <boost/python.hpp>
 
 #include <vigra/multi_array.hxx>
+#include <vigra/multi_shape.hxx>
 #include <vigra/union_find.hxx>
-#include <vigra/multi_iterator_coupled.hxx> 
+#include <vigra/multi_iterator_coupled.hxx>
+
+#include <vigra/numpy_array.hxx>
+#include <vigra/numpy_array_converters.hxx>
+
+#include <vigra/timing.hxx>
 
 #include <iostream>
 
 namespace vigra {
+
 
 template <int N, class PixelType, class LabelType>
 void mergeLabels(MultiArrayView<N, PixelType> const & left,
@@ -28,10 +35,46 @@ void mergeLabels(MultiArrayView<N, PixelType> const & left,
     vigra_precondition(leftLabels.shape() == rightLabels.shape(), "Shape mismatch");
     vigra_precondition(leftLabels.shape() == left.shape(), "Shape mismatch");
     
-    static const MultiArrayIndex l = 1;
-    static const MultiArrayIndex r = 2;
-    static const MultiArrayIndex ll = 3;
-    static const MultiArrayIndex rl = 4;
+    const MultiArrayIndex LEFT_PIXEL = 1;
+    const MultiArrayIndex RIGHT_PIXEL = 2;
+    const MultiArrayIndex LEFT_LABEL = 3;
+    const MultiArrayIndex RIGHT_LABEL = 4;    
+    
+    typedef typename CoupledIteratorType<N, PixelType, PixelType, LabelType, LabelType>::type Iterator;
+    
+    Iterator start = createCoupledIterator(left, right, leftLabels, rightLabels);
+    Iterator end = start.getEndIterator();
+    
+    for (Iterator it = start; it < end; it++) 
+    {
+        if (it.get<LEFT_PIXEL>() == it.get<RIGHT_PIXEL>()) 
+        {
+            unionFind.makeUnion(leftMap[it.get<LEFT_LABEL>()],
+                                rightMap[it.get<RIGHT_LABEL>()]);
+        }
+    }
+}
+
+template <int N, class PixelType, class LabelType>
+void mergeLabelsCoupled(MultiArrayView<N, PixelType> const & left,
+                 MultiArrayView<N, PixelType> const & right,
+                 MultiArrayView<N, LabelType> const & leftLabels,
+                 MultiArrayView<N, LabelType> const & rightLabels,
+                 MultiArrayView<1, LabelType> const & leftMap,
+                 MultiArrayView<1, LabelType> const & rightMap,
+                 detail::UnionFindArray<LabelType> & unionFind
+                 ) {
+    vigra_precondition(left.shape() == right.shape(), "Shape mismatch");
+    vigra_precondition(leftLabels.shape() == rightLabels.shape(), "Shape mismatch");
+    vigra_precondition(leftLabels.shape() == left.shape(), "Shape mismatch");
+    
+    const MultiArrayIndex LEFT_PIXEL = 1;
+    const MultiArrayIndex RIGHT_PIXEL = 2;
+    const MultiArrayIndex LEFT_LABEL = 3;
+    const MultiArrayIndex RIGHT_LABEL = 4;
+    
+    LabelType left_label;
+    LabelType right_label;
     
     
     typedef typename CoupledIteratorType<N, PixelType, PixelType, LabelType, LabelType>::type Iterator;
@@ -39,55 +82,114 @@ void mergeLabels(MultiArrayView<N, PixelType> const & left,
     Iterator start = createCoupledIterator(left, right, leftLabels, rightLabels);
     Iterator end = start.getEndIterator();
     
-    for (Iterator it = start; it < end; it++) {
-        //std::cout << "Inspecting index " << it.get<0>() << std::endl;
-        if (it.get<l>() == it.get<r>() && it.get<ll>() > 0 && it.get<rl>() > 0) {
-            unionFind.makeUnion(leftMap[it.get<ll>()], rightMap[it.get<rl>()]);
-            
-            //std::cout << "merging labels " << leftMap[it.get<ll>()] << " and " << rightMap[it.get<rl>()] << std::endl;
+    //MAV.stride() == (1, 100, 10000)
+    //std::cerr << left.stride() << std::endl;
+    
+    //bindAt
+    // stride permutation in MAV2 = MAV.permuteStridesAscending()
+    
+    for (Iterator it = start; it < end; it++) 
+    {
+        if (it.get<LEFT_PIXEL>() == it.get<RIGHT_PIXEL>()) 
+        {
+            left_label = it.get<LEFT_LABEL>();
+            right_label = it.get<RIGHT_LABEL>();
+            if (left_label>0 && right_label>0) 
+            {
+                unionFind.makeUnion(leftMap[left_label], rightMap[right_label]);
+            }
         }
     }
 }
 
+template <int N, class PixelType, class LabelType>
+void mergeLabelsEvenWorse(MultiArrayView<N, PixelType> const & left,
+                 MultiArrayView<N, PixelType> const & right,
+                 MultiArrayView<N, LabelType> const & leftLabels,
+                 MultiArrayView<N, LabelType> const & rightLabels,
+                 MultiArrayView<1, LabelType> const & leftMap,
+                 MultiArrayView<1, LabelType> const & rightMap,
+                 detail::UnionFindArray<LabelType> & unionFind
+                 ) {
+    vigra_precondition(left.shape() == right.shape(), "Shape mismatch");
+    vigra_precondition(leftLabels.shape() == rightLabels.shape(), "Shape mismatch");
+    vigra_precondition(leftLabels.shape() == left.shape(), "Shape mismatch");
+    
+    const MultiArrayIndex LEFT_PIXEL = 1;
+    const MultiArrayIndex RIGHT_PIXEL = 2;
+    const MultiArrayIndex LEFT_LABEL = 3;
+    const MultiArrayIndex RIGHT_LABEL = 4;
+    
+    typedef typename MultiArrayView<N, PixelType>::const_iterator PixelIterator;
+    typedef typename MultiArrayView<N, LabelType>::const_iterator LabelIterator;
+    
+    PixelIterator end = left.end();
+    PixelIterator left_it = left.begin();
+    PixelIterator right_it = right.begin();
+    LabelIterator llabels_it = leftLabels.begin();
+    LabelIterator rlabels_it = rightLabels.begin();
+    
+    
+    
+    for (; left_it < end; left_it++, right_it++, llabels_it++, rlabels_it++) 
+    {
+        if (*left_it == *right_it) 
+        {
+            if (*llabels_it>0 && *rlabels_it>0) 
+            {
+                unionFind.makeUnion(leftMap[*llabels_it], rightMap[*rlabels_it]);
+            }
+        }
+    }
+}
+
+
+
+
+template <class PixelType>
+inline void pythonMergeLabels3d(NumpyArray<3, Singleband<PixelType> > const & left,
+                 NumpyArray<3, Singleband<PixelType> > const & right,
+                 NumpyArray<3, Singleband<npy_uint32> > const & leftLabels,
+                 NumpyArray<3, Singleband<npy_uint32> > const & rightLabels,
+                 NumpyArray<1, Singleband<npy_uint32> > const & leftMap,
+                 NumpyArray<1, Singleband<npy_uint32> > const & rightMap,
+                 detail::UnionFindArray<npy_uint32> & unionFind) {
+    
+    PyAllowThreads _pythread;
+    mergeLabels<3, PixelType, npy_uint32>(left, right, leftLabels, rightLabels, leftMap, rightMap, unionFind);
+}
+
+
+VIGRA_PYTHON_MULTITYPE_FUNCTOR(pyMergeLabels3d, pythonMergeLabels3d)
+
+
 } // namespace vigra
 
 
-
-template <int N, class P, class L>
-void exportLabelType() {
-    using namespace boost::python;
-    def("mergeLabels",
-        vigra::registerConverters(&vigra::mergeLabels<N, P, L>),
-        (arg("X"), 
-         arg("Y"),
-         arg("labelsX"), 
-         arg("labelsY"),
-         arg("mapX"), 
-         arg("mapY"),
-         arg("unionFind")),
-        "TODO\n");
-}
-
-template <int N, class P>
-void exportPixelType() {
-    exportLabelType<N, P, vigra::UInt8>();
-    exportLabelType<N, P, vigra::UInt32>();
-    exportLabelType<N, P, vigra::UInt64>();
-}
-
-template <int N>
-void exportDim() {
-    exportPixelType<N, vigra::UInt8>();
-    exportPixelType<N, vigra::UInt32>();
-    exportPixelType<N, vigra::UInt64>();
-}
-
 void exportMergeLabels() {
-    exportDim<1>();
-    exportDim<2>();
-    exportDim<3>();
-    exportDim<4>();
-    exportDim<5>();
+    using namespace vigra;
+    using namespace boost::python;
+    multidef("mergeLabels", 
+        pyMergeLabels3d<npy_uint8, npy_uint32, npy_uint64, float>(),
+        (
+            arg("left_image"), arg("right_image"),
+            arg("left_labels"), arg("right_labels"),
+            arg("left_mapping"), arg("right_mapping"),
+            arg("UnionFind")
+        ),
+        "Bla\n");
+    
+    /*
+    multidef("mergeLabels", pyMergeLabels2d<npy_uint8, npy_uint32, npy_uint64, float>(),
+        (arg("left_image"),
+        arg("right_image"),
+        arg("left_labels"),
+        arg("right_labels"),
+        arg("left_mapping"),
+        arg("right_mapping"),
+        arg("UnionFind")),
+        "Bla\n");
+    */ 
 }
 
 #endif

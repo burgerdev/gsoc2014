@@ -24,11 +24,11 @@ template <class T>
 NPY_TYPES get_typenum();
 
 template <>
-NPY_TYPES get_typenum<vigra::UInt8>() { return NPY_UBYTE;}
+NPY_TYPES get_typenum<npy_uint8>() { return NPY_UBYTE;}
 template <>
-NPY_TYPES get_typenum<vigra::UInt32>() { return NPY_ULONG;}
+NPY_TYPES get_typenum<npy_uint32>() { return NPY_ULONG;}
 template <>
-NPY_TYPES get_typenum<vigra::UInt64>() { return NPY_ULONGLONG;}
+NPY_TYPES get_typenum<npy_uint64>() { return NPY_ULONGLONG;}
 
 
 template <class T>
@@ -90,9 +90,9 @@ void exportVigraUnionFindArrayTyped(const char* name) {
 }
 
 void exportVigraUnionFindArray() {
-    exportVigraUnionFindArrayTyped<vigra::UInt8>("UnionFindUInt8");
-    exportVigraUnionFindArrayTyped<vigra::UInt32>("UnionFindUInt32");
-    exportVigraUnionFindArrayTyped<vigra::UInt64>("UnionFindUInt64");
+    exportVigraUnionFindArrayTyped<npy_uint8>("UnionFindUInt8");
+    exportVigraUnionFindArrayTyped<npy_uint32>("UnionFindUInt32");
+    exportVigraUnionFindArrayTyped<npy_uint64>("UnionFindUInt64");
 }
 
 // the argument of the init macro must be the module name
