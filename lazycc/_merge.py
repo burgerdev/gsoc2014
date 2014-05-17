@@ -24,9 +24,10 @@ def mergeLabels(hyperplane_a, hyperplane_b,
                 mapping_a, mapping_b, GUF):
     
     # the indices where objects are adjacent
-    idx = hyperplane_a == hyperplane_b
+    idx = np.logical_and(hyperplane_a == hyperplane_b,
+                         label_hyperplane_a > 0)
 
     # merge each pair of labels
-    for label_a, label_b in zip(label_hyperplane_a[idx],
-                                label_hyperplane_b[idx]):
+    for label_a, label_b in set(zip(label_hyperplane_a[idx],
+                                    label_hyperplane_b[idx])):
         GUF.makeUnion(mapping_a[label_a], mapping_b[label_b])
