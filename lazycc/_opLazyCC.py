@@ -15,7 +15,7 @@ from lazyflow.rtype import SubRegion
 from lazyflow.operators import OpCompressedCache
 from lazyflow.request import Request, RequestPool
 
-from lazycc import mergeLabels
+#from lazycc import mergeLabels
 from lazycc import UnionFindArray
 
 #logging.basicConfig()
@@ -23,8 +23,6 @@ logger = logging.getLogger(__name__)
 #logger.setLevel(logging.DEBUG)
 
 _LABEL_TYPE = np.uint32
-
-
 
 
 ## 3d data only, xyz
@@ -52,11 +50,6 @@ class OpLazyCC(Operator):
 
     def __init__(self, *args, **kwargs):
         super(OpLazyCC, self).__init__(*args, **kwargs)
-
-        self._cache = OpCompressedCache(parent=self)
-        self._cache.Input.connect(self._FakeOutput)
-        self._cache.BlockShape.connect(self.ChunkShape)
-
         self._lock = RLock()
 
     def setupOutputs(self):
@@ -96,8 +89,10 @@ class OpLazyCC(Operator):
         # keep track of merged regions
         self._mergeMap = defaultdict(list)
 
+        self._cache = vigra.ChunkedArrayCompressed(shape, dtype=_LABEL_TYPE)
+
     def execute(self, slot, subindex, roi, result):
-        assert slot is not self._FakeOutput, "request to _FakeOutput: {}".format(roi)
+        assert slot is self.Output, "Invalid request to execute"
 
         chunks = self._roiToChunkIndex(roi)
         for chunk in chunks:
@@ -184,7 +179,7 @@ class OpLazyCC(Operator):
 
         # store the labeled data in cache
         #logger.info("Caching {} into {} ...".format(chunkIndex, roi))
-        self._cache.setInSlot(self._cache.Input, (), roi, labeled)
+        self._cache[roi.toSlice()] = labeled
         #logger.info("Done caching")
 
         # update the labeling information
@@ -211,21 +206,28 @@ class OpLazyCC(Operator):
 
         hyperplane_index_a, hyperplane_index_b = \
             self._chunkIndexToHyperplane(chunkA, chunkB)
+        label_hyperplane_a = self._cache[hyperplane_index_a]
+        label_hyperplane_b = self._cache[hyperplane_index_b]
+        
+        # see if we have border labels at all
+        adjacent_bool_inds = np.logical_and(label_hyperplane_a > 0,
+                                          label_hyperplane_b > 0)
+        if not np.any(adjacent_bool_inds):
+            return
 
         hyperplane_a = self.Input[hyperplane_index_a].wait()
         hyperplane_b = self.Input[hyperplane_index_b].wait()
-        label_hyperplane_a = self._cache.Output[hyperplane_index_a].wait()
-        label_hyperplane_b = self._cache.Output[hyperplane_index_b].wait()
-
-        map_a = self._getLabelsForChunk(chunkA, mapping=True)
-        map_b = self._getLabelsForChunk(chunkB, mapping=True)
+        adjacent_bool_inds = np.logical_and(adjacent_bool_inds,
+                                            hyperplane_a == hyperplane_b)
 
         # union find manipulations are critical
+        map_a = self._getLabelsForChunk(chunkA, mapping=True)
+        map_b = self._getLabelsForChunk(chunkB, mapping=True)
+        labels_a = map_a[label_hyperplane_a[adjacent_bool_inds]]
+        labels_b = map_b[label_hyperplane_b[adjacent_bool_inds]]
         with self._lock:
-            mergeLabels(hyperplane_a, hyperplane_b,
-                        label_hyperplane_a.astype(_LABEL_TYPE),
-                        label_hyperplane_b.astype(_LABEL_TYPE),
-                        map_a, map_b, self._uf)
+            for a, b in zip(labels_a, labels_b):
+                self._uf.makeUnion(a, b)
         self._mergeMap[chunkA].append(chunkB)
 
     @synchronized
@@ -238,7 +240,7 @@ class OpLazyCC(Operator):
             newroi.stop = np.minimum(newroi.stop, roi.stop)
             newroi.start = np.maximum(newroi.start, roi.start)
             labels = self._getLabelsForChunk(idx, mapping=True)
-            chunk = self._cache.Output.get(newroi).wait()
+            chunk = self._cache[newroi.toSlice()]
             newroi.start -= roi.start
             newroi.stop -= roi.start
             s = newroi.toSlice()
