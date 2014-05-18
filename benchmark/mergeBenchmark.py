@@ -4,6 +4,7 @@
 
 from lazycc._merge import mergeLabels as pyMergeLabels
 from lazycc._lazycc_cxx import mergeLabels as cMergeLabels
+from lazycc._lazycc_cxx import mergeLabelsSimple as cMergeLabelsSimple
 from lazycc import UnionFindArray
 
 from timeit import timeit, repeat
@@ -16,8 +17,8 @@ if __name__ == "__main__":
 
     labelType = np.uint32
 
-    left = np.random.randint(255, size=(100, 100, 10)).astype(np.uint8).transpose()
-    right = np.random.randint(255, size=(100, 100, 10)).astype(np.uint8).transpose()
+    left = np.random.randint(255, size=(100, 100, 10)).astype(np.uint8)
+    right = np.random.randint(255, size=(100, 100, 10)).astype(np.uint8)
 
     labels_left = np.zeros(left.shape, dtype=labelType)
     labels_right = np.zeros(right.shape, dtype=labelType)
@@ -26,6 +27,11 @@ if __name__ == "__main__":
     print(res)
     vigra.analysis.labelVolume(left, out=labels_left)
     vigra.analysis.labelVolume(right, out=labels_right)
+    
+    #labels_left = labels_left.transpose()
+    #labels_right = labels_right.transpose()
+    #left = left.transpose()
+    #right = right.transpose()
 
     max_left = np.max(labels_left)
     max_right = np.max(labels_right)
@@ -47,3 +53,10 @@ if __name__ == "__main__":
                      repeat=1, number=1)
         print("    " + " ".join(["{:.3f}s".format(r) for r in res]))
 
+    cmd = "{}(labels_left, labels_right, "\
+          "map_left, map_right, uf)"
+    impl = "cMergeLabelsSimple"
+    print("{} for shape {}:".format(cmd.format(impl), left.shape))
+    res = repeat(cmd.format(impl), setup=setup.format(impl),
+                 repeat=1, number=1)
+    print("    " + " ".join(["{:.3f}s".format(r) for r in res]))
