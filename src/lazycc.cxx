@@ -26,7 +26,7 @@ NPY_TYPES get_typenum();
 template <>
 NPY_TYPES get_typenum<npy_uint8>() { return NPY_UBYTE;}
 template <>
-NPY_TYPES get_typenum<npy_uint32>() { return NPY_ULONG;}
+NPY_TYPES get_typenum<npy_uint32>() { return NPY_UINT;}
 template <>
 NPY_TYPES get_typenum<npy_uint64>() { return NPY_ULONGLONG;}
 

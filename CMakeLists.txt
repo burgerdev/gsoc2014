@@ -6,7 +6,8 @@ cmake_minimum_required(VERSION 2.8)
 
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake/modules)
 
-find_package(PythonLibs REQUIRED)
+find_package(PythonInterp 2.7 REQUIRED)
+find_package(PythonLibs 2.7 REQUIRED)
 find_package(Boost COMPONENTS python REQUIRED)
 find_package(VIGRA REQUIRED)
 

@@ -17,25 +17,20 @@ if __name__ == "__main__":
 
     labelType = np.uint32
 
-    left = np.random.randint(255, size=(100, 100, 10)).astype(np.uint8)
-    right = np.random.randint(255, size=(100, 100, 10)).astype(np.uint8)
+    left = np.random.randint(255, size=(64, 1, 64)).astype(np.uint8)
+    right = np.random.randint(255, size=(64, 1, 64)).astype(np.uint8)
 
     labels_left = np.zeros(left.shape, dtype=labelType)
     labels_right = np.zeros(right.shape, dtype=labelType)
 
-    res = timeit('labelVolume(right)', setup='from vigra.analysis import labelVolume;from __main__ import right', number=1)
+    res = timeit('labelVolume(right)', setup='from vigra.analysis import labelVolume;from __main__ import right', number=50)
     print(res)
     vigra.analysis.labelVolume(left, out=labels_left)
     vigra.analysis.labelVolume(right, out=labels_right)
-    
-    #labels_left = labels_left.transpose()
-    #labels_right = labels_right.transpose()
-    #left = left.transpose()
-    #right = right.transpose()
 
     max_left = np.max(labels_left)
     max_right = np.max(labels_right)
-    
+
     map_left = np.arange(max_left+1, dtype=labelType)
     map_right = np.arange(max_right+1, dtype=labelType) + max_left
     map_right[0] = 0
@@ -46,17 +41,10 @@ if __name__ == "__main__":
             "uf = UnionFindArray(map_right)"
     cmd = "{}(left, right, labels_left, labels_right, "\
           "map_left, map_right, uf)"
-    
-    for impl in ["pyMergeLabels", "cMergeLabels"]:
+
+    for impl in ["pyMergeLabels", "cMergeLabels", "cMergeLabelsSimple"]:
         print("{} for shape {}:".format(cmd.format(impl), left.shape))
         res = repeat(cmd.format(impl), setup=setup.format(impl),
-                     repeat=1, number=1)
+                     repeat=1, number=50)
         print("    " + " ".join(["{:.3f}s".format(r) for r in res]))
 
-    cmd = "{}(labels_left, labels_right, "\
-          "map_left, map_right, uf)"
-    impl = "cMergeLabelsSimple"
-    print("{} for shape {}:".format(cmd.format(impl), left.shape))
-    res = repeat(cmd.format(impl), setup=setup.format(impl),
-                 repeat=1, number=1)
-    print("    " + " ".join(["{:.3f}s".format(r) for r in res]))

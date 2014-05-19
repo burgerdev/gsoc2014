@@ -4,6 +4,7 @@
 
 import numpy as np
 
+
 ## join the labels of two adjacent chunks
 #
 # The boundary of the two chunks A and B is inspected and the UnionFind
@@ -22,7 +23,7 @@ import numpy as np
 def mergeLabels(hyperplane_a, hyperplane_b,
                 label_hyperplane_a, label_hyperplane_b,
                 mapping_a, mapping_b, GUF):
-    
+
     # the indices where objects are adjacent
     idx = np.logical_and(hyperplane_a == hyperplane_b,
                          label_hyperplane_a > 0)
