@@ -4,9 +4,6 @@ find_package(PythonInterp REQUIRED)
 find_package(Numpy REQUIRED)
 find_package(Boost COMPONENTS python REQUIRED)
 
-#
-# The _blockedarray python module
-#
 
 include_directories(
     ${PYTHON_INCLUDE_DIR}
@@ -17,12 +14,6 @@ include_directories(
 add_library(_lazycc_cxx SHARED
     lazycc.cxx
 )
-
-if(WIN32 OR APPLE)
-    set(RT_LIBRARY "")
-else()
-    set(RT_LIBRARY "rt")
-endif()
 
 target_link_libraries(_lazycc_cxx
     ${Boost_PYTHON_LIBRARIES}

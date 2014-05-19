@@ -2,7 +2,7 @@ project(lazycc)
 
 cmake_minimum_required(VERSION 2.8)
 
-#enable_testing()
+enable_testing()
 
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake/modules)
 
@@ -18,5 +18,5 @@ include_directories(
 )
 
 add_subdirectory(src)
-#add_subdirectory(test)
+add_subdirectory(test)
 

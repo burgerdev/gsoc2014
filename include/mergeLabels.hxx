@@ -1,11 +1,7 @@
 #ifndef MERGELABELS_HXX
 #define MERGELABELS_HXX
 
-// this must define the same symbol as the main module file (numpy requirement)
-#define PY_ARRAY_UNIQUE_SYMBOL lazycc_PyArray_API
-#define NO_IMPORT_ARRAY
-
-#include <boost/python.hpp>
+#include <vigra/tuple.hxx>
 
 #include <vigra/multi_array.hxx>
 #include <vigra/multi_shape.hxx>
@@ -24,43 +20,110 @@
 namespace vigra {
 
 
-template <int N, class PixelType, class LabelType>
-void mergeLabels(MultiArrayView<N, PixelType> const & left,
-                 MultiArrayView<N, PixelType> const & right,
-                 MultiArrayView<N, LabelType> const & leftLabels,
-                 MultiArrayView<N, LabelType> const & rightLabels,
-                 MultiArrayView<1, LabelType> const & leftMap,
-                 MultiArrayView<1, LabelType> const & rightMap,
-                 detail::UnionFindArray<LabelType> & unionFind
-                 ) {
-    vigra_precondition(left.shape() == right.shape(), "Shape mismatch");
-    vigra_precondition(leftLabels.shape() == rightLabels.shape(), "Shape mismatch");
-    vigra_precondition(leftLabels.shape() == left.shape(), "Shape mismatch");
-    
-    const MultiArrayIndex LEFT_PIXEL = 1;
-    const MultiArrayIndex RIGHT_PIXEL = 2;
-    const MultiArrayIndex LEFT_LABEL = 3;
-    const MultiArrayIndex RIGHT_LABEL = 4;    
-    
-    typedef typename CoupledIteratorType<N, PixelType, PixelType, LabelType, LabelType>::type Iterator;
-    
-//     std::cerr << left.stride() << std::endl;
-//     std::cerr << right.stride() << std::endl;
-//     std::cerr << leftLabels.stride() << std::endl;
-//     std::cerr << rightLabels.stride() << std::endl;
-    
-    Iterator start = createCoupledIterator(left, right, leftLabels, rightLabels);
-    Iterator end = start.getEndIterator();
-    
-    for (Iterator it = start; it < end; it++) 
+template <class PixelIterator, class PixelAccessor, class SrcShape,
+          class LabelIterator, class LabelAccessor,
+          class EqualityFunctor>
+void mergeLabels(PixelIterator leftIter, SrcShape leftShape, PixelAccessor leftAcc,
+                PixelIterator rightIter, SrcShape rightShape, PixelAccessor rightAcc,
+                LabelIterator leftLabelsIter, SrcShape leftLabelsShape, LabelAccessor leftLabelsAcc,
+                LabelIterator rightLabelsIter, SrcShape rightLabelsShape, LabelAccessor rightLabelsAcc,
+                MultiArrayView<1, typename LabelAccessor::value_type> const & leftMap,
+                MultiArrayView<1, typename LabelAccessor::value_type> const & rightMap,
+                detail::UnionFindArray<typename LabelAccessor::value_type> & unionFind,
+                EqualityFunctor equal)
+{
+    typedef typename LabelAccessor::value_type LabelType;
+
+    //basically needed for iteration and border-checks
+    int w = leftShape[0], h = leftShape[1], d = leftShape[2];
+    int zLeft, zRight, zLabelsLeft, zLabelsRight;
+    int yLeft, yRight, yLabelsLeft, yLabelsRight;
+    int xLeft, xRight, xLabelsLeft, xLabelsRight;
+
+    for(zLeft = 0, zRight = 0, zLabelsLeft = 0, zLabelsRight = 0;
+        zLeft != d; // assume all shapes are the same
+        ++zLeft, ++zRight, ++zLabelsLeft, ++zLabelsRight,
+        ++leftIter.dim2(), ++rightIter.dim2(),
+        ++leftLabelsIter.dim2(), ++rightLabelsIter.dim2())
     {
-        if (it.get<LEFT_PIXEL>() == it.get<RIGHT_PIXEL>()) 
+        PixelIterator leftItery(leftIter);
+        PixelIterator rightItery(rightIter);
+        LabelIterator leftLabelsItery(leftLabelsIter);
+        LabelIterator rightLabelsItery(rightLabelsIter);
+        
+        for(yLeft = 0, yRight = 0, yLabelsLeft = 0, yLabelsRight = 0;
+            yLeft != h; // assume all shapes are the same
+            ++yLeft, ++yRight, ++yLabelsLeft, ++yLabelsRight,
+            ++leftItery.dim1(), ++rightItery.dim1(),
+            ++leftLabelsItery.dim1(), ++rightLabelsItery.dim1())
         {
-            unionFind.makeUnion(leftMap[it.get<LEFT_LABEL>()],
-                                rightMap[it.get<RIGHT_LABEL>()]);
+            PixelIterator leftIterx(leftItery);
+            PixelIterator rightIterx(rightItery);
+            LabelIterator leftLabelsIterx(leftLabelsItery);
+            LabelIterator rightLabelsIterx(rightLabelsItery);
+            
+            for(xLeft = 0, xRight = 0, xLabelsLeft = 0, xLabelsRight = 0;
+                xLeft != w; // assume all shapes are the same
+                ++xLeft, ++xRight, ++xLabelsLeft, ++xLabelsRight,
+                ++leftIterx.dim0(), ++rightIterx.dim0(),
+                ++leftLabelsIterx.dim0(), ++rightLabelsIterx.dim0())
+            {
+                if(equal(leftAcc(leftIterx), rightAcc(rightIterx)))
+                {
+                    if(leftLabelsAcc(leftLabelsIterx) > 0)
+                    {
+                        unionFind.makeUnion(leftMap[leftLabelsAcc(leftLabelsIterx)],
+                                            rightMap[rightLabelsAcc(rightLabelsIterx)]);
+                    }
+                }
+            }
+            
         }
     }
 }
+
+
+template <class PixelIterator, class PixelAccessor, class SrcShape,
+          class LabelIterator, class LabelAccessor,class EqualityFunctor>
+inline void 
+mergeLabels(triple<PixelIterator, SrcShape, PixelAccessor> left,
+            triple<PixelIterator, SrcShape, PixelAccessor> right,
+            triple<LabelIterator, SrcShape, LabelAccessor> leftLabels,
+            triple<LabelIterator, SrcShape, LabelAccessor> rightLabels,
+            MultiArrayView<1, typename LabelAccessor::value_type> const & leftMap,
+            MultiArrayView<1, typename LabelAccessor::value_type> const & rightMap,
+            detail::UnionFindArray<typename LabelAccessor::value_type> & unionFind, 
+            EqualityFunctor equal)
+{
+    mergeLabels(left.first, left.second, left.third,
+                right.first, right.second, right.third,
+                leftLabels.first, leftLabels.second, leftLabels.third,
+                rightLabels.first, rightLabels.second, rightLabels.third,
+                leftMap, rightMap, unionFind, equal);
+}
+
+template <int N, class PixelType, class LabelType>
+inline void
+mergeLabels(MultiArrayView<N, PixelType> const & left,
+            MultiArrayView<N, PixelType> const & right,
+            MultiArrayView<N, LabelType> const & leftLabels,
+            MultiArrayView<N, LabelType> const & rightLabels,
+            MultiArrayView<1, LabelType> const & leftMap,
+            MultiArrayView<1, LabelType> const & rightMap,
+            detail::UnionFindArray<LabelType> & unionFind)
+{
+    vigra_precondition(left.shape() == right.shape(), "mergeLabels(): Data arrays shape mismatch");
+    vigra_precondition(leftLabels.shape() == rightLabels.shape(), "mergeLabels(): Label arrays shape mismatch");
+    vigra_precondition(leftLabels.shape() == left.shape(), "mergeLabels(): Labels/Data shape mismatch");
+
+    mergeLabels(srcMultiArrayRange(left), 
+                srcMultiArrayRange(right),
+                srcMultiArrayRange(leftLabels), 
+                srcMultiArrayRange(rightLabels),
+                leftMap, rightMap, unionFind,
+                std::equal_to<PixelType>());
+}
+
 
 template <class T> 
 class UnionFunctor {
@@ -232,76 +295,8 @@ void mergeLabelsEvenWorse(MultiArrayView<N, PixelType> const & left,
 }
 
 
-
-
-template <class PixelType>
-inline void pythonMergeLabels3d(NumpyArray<3, Singleband<PixelType> > left,
-                 NumpyArray<3, Singleband<PixelType> > right,
-                 NumpyArray<3, Singleband<npy_uint32> > leftLabels,
-                 NumpyArray<3, Singleband<npy_uint32> > rightLabels,
-                 NumpyArray<1, Singleband<npy_uint32> > leftMap,
-                 NumpyArray<1, Singleband<npy_uint32> > rightMap,
-                 detail::UnionFindArray<npy_uint32> & unionFind) {
-    
-    //PyAllowThreads _pythread;
-    mergeLabels<3, PixelType, npy_uint32>(left, right, leftLabels, rightLabels, leftMap, rightMap, unionFind);
-}
-
-VIGRA_PYTHON_MULTITYPE_FUNCTOR(pyMergeLabels3d, pythonMergeLabels3d)
-
-template <class PixelType>
-inline void pythonMergeLabels3dSimple(
-                 NumpyArray<3, Singleband<PixelType> > left,
-                 NumpyArray<3, Singleband<PixelType> > right,
-                 NumpyArray<3, Singleband<npy_uint32> > leftLabels,
-                 NumpyArray<3, Singleband<npy_uint32> > rightLabels,
-                 NumpyArray<1, Singleband<npy_uint32> > leftMap,
-                 NumpyArray<1, Singleband<npy_uint32> > rightMap,
-                 detail::UnionFindArray<npy_uint32> & unionFind) {
-    
-    //PyAllowThreads _pythread;
-    mergeLabelsSimple<3, PixelType, npy_uint32>(left, right, leftLabels, rightLabels, leftMap, rightMap, unionFind);
-}
-
-VIGRA_PYTHON_MULTITYPE_FUNCTOR(pyMergeLabels3dSimple, pythonMergeLabels3dSimple)
-
-
 } // namespace vigra
 
 
-void exportMergeLabels() {
-    using namespace vigra;
-    using namespace boost::python;
-    multidef("mergeLabels", 
-        pyMergeLabels3d<npy_uint8, npy_uint32, npy_uint64, float>(),
-        (
-            arg("left_image"), arg("right_image"),
-            arg("left_labels"), arg("right_labels"),
-            arg("left_mapping"), arg("right_mapping"),
-            arg("UnionFind")
-        ),
-        "Bla\n");
-
-    multidef("mergeLabelsSimple", 
-        pyMergeLabels3dSimple<npy_uint8, npy_uint32, npy_uint64, float>(),
-        (
-            arg("left_labels"), arg("right_labels"),
-            arg("left_mapping"), arg("right_mapping"),
-            arg("UnionFind")
-        ),
-        "Bla\n");
-    
-    /*
-    multidef("mergeLabels", pyMergeLabels2d<npy_uint8, npy_uint32, npy_uint64, float>(),
-        (arg("left_image"),
-        arg("right_image"),
-        arg("left_labels"),
-        arg("right_labels"),
-        arg("left_mapping"),
-        arg("right_mapping"),
-        arg("UnionFind")),
-        "Bla\n");
-    */ 
-}
 
 #endif
