@@ -4,7 +4,6 @@
 
 from lazycc._merge import mergeLabels as pyMergeLabels
 from lazycc._lazycc_cxx import mergeLabels as cMergeLabels
-from lazycc._lazycc_cxx import mergeLabelsSimple as cMergeLabelsSimple
 from lazycc import UnionFindArray
 
 from timeit import timeit, repeat
@@ -17,8 +16,8 @@ if __name__ == "__main__":
 
     labelType = np.uint32
 
-    left = np.random.randint(255, size=(64, 1, 64)).astype(np.uint8)
-    right = np.random.randint(255, size=(64, 1, 64)).astype(np.uint8)
+    left = np.random.randint(255, size=(1, 64, 64)).astype(np.uint8)
+    right = np.random.randint(255, size=(1, 64, 64)).astype(np.uint8)
 
     labels_left = np.zeros(left.shape, dtype=labelType)
     labels_right = np.zeros(right.shape, dtype=labelType)
@@ -42,7 +41,7 @@ if __name__ == "__main__":
     cmd = "{}(left, right, labels_left, labels_right, "\
           "map_left, map_right, uf)"
 
-    for impl in ["pyMergeLabels", "cMergeLabels", "cMergeLabelsSimple"]:
+    for impl in ["pyMergeLabels", "cMergeLabels"]:
         print("{} for shape {}:".format(cmd.format(impl), left.shape))
         res = repeat(cmd.format(impl), setup=setup.format(impl),
                      repeat=1, number=50)

@@ -112,22 +112,6 @@ inline void pythonMergeLabels3d(NumpyArray<3, Singleband<PixelType> > left,
 
 VIGRA_PYTHON_MULTITYPE_FUNCTOR(pyMergeLabels3d, pythonMergeLabels3d)
 
-template <class PixelType>
-inline void pythonMergeLabels3dSimple(
-                 NumpyArray<3, Singleband<PixelType> > left,
-                 NumpyArray<3, Singleband<PixelType> > right,
-                 NumpyArray<3, Singleband<npy_uint32> > leftLabels,
-                 NumpyArray<3, Singleband<npy_uint32> > rightLabels,
-                 NumpyArray<1, Singleband<npy_uint32> > leftMap,
-                 NumpyArray<1, Singleband<npy_uint32> > rightMap,
-                 detail::UnionFindArray<npy_uint32> & unionFind) {
-    
-    //PyAllowThreads _pythread;
-    mergeLabelsSimple<3, PixelType, npy_uint32>(left, right, leftLabels, rightLabels, leftMap, rightMap, unionFind);
-}
-
-VIGRA_PYTHON_MULTITYPE_FUNCTOR(pyMergeLabels3dSimple, pythonMergeLabels3dSimple)
-
 } // namespace vigra
 
 
@@ -144,15 +128,7 @@ void exportMergeLabels() {
              ),
              "Bla\n");
     
-    multidef("mergeLabelsSimple", 
-             pyMergeLabels3dSimple<npy_uint8, npy_uint32, npy_uint64, float>(),
-             (
-                 arg("left_labels"), arg("right_labels"),
-              arg("left_mapping"), arg("right_mapping"),
-              arg("UnionFind")
-             ),
-             "Bla\n");
-    
+   
     /*
      *   multidef("mergeLabels", pyMergeLabels2d<npy_uint8, npy_uint32, npy_uint64, float>(),
      *       (arg("left_image"),
