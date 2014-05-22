@@ -37,21 +37,21 @@ class TestMergeLabels(unittest.TestCase):
     def testVariousArrays(self):
         for d in range(1, 5):
             for pt in (np.uint8, np.uint32, np.uint64, np.float32):
-                for lt in (np.uint32,):
+                for lt in (np.uint8, np.uint32, np.uint64):
                     print("{}-dim, pixel type: {}, label type: {}".format(d, pt, lt))
                     shape = (5,)*d
 
-                    maxInt = 256**2
+                    maxInt = 256**2 - 2
                     x = np.random.randint(maxInt, size=shape).astype(pt)
                     y = np.random.randint(maxInt, size=shape).astype(pt)
 
-                    maxInt = 256**2
+                    maxInt = (256**2 - 4)/2
                     xl = np.random.randint(maxInt, size=shape).astype(lt)//3
                     yl = np.random.randint(maxInt, size=shape).astype(lt)//3
 
                     m = max(xl.flat)
                     n = max(yl.flat)
-                    xm = np.arange(n+1, dtype=lt)
+                    xm = np.arange(m+1, dtype=lt)
                     ym = np.arange(n+1, m+n+1, dtype=lt)
                     print("Max label: {}".format(m+n))
 

@@ -22,13 +22,14 @@
 
 template <class T>
 NPY_TYPES get_typenum();
+npy_uint32 a;
 
 template <>
-NPY_TYPES get_typenum<npy_uint8>() { return NPY_UBYTE;}
+NPY_TYPES get_typenum<npy_uint8>() { return NPY_UINT8;}
 template <>
-NPY_TYPES get_typenum<npy_uint32>() { return NPY_UINT;}
+NPY_TYPES get_typenum<npy_uint32>() { return NPY_UINT32;}
 template <>
-NPY_TYPES get_typenum<npy_uint64>() { return NPY_ULONGLONG;}
+NPY_TYPES get_typenum<npy_uint64>() { return NPY_UINT64;}
 
 
 template <class T>
