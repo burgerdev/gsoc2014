@@ -138,13 +138,17 @@ mergeLabels(MultiArrayView<N, PixelType> const & left,
     {
         if (shape[i] == 1)
         {
-            MultiArrayView<(N-1>1?N-1:1), PixelType> leftRed = left.bindAt(i, 0);
-            MultiArrayView<(N-1>1?N-1:1), PixelType> rightRed = right.bindAt(i, 0);
-            MultiArrayView<(N-1>1?N-1:1), LabelType> leftLabelsRed = leftLabels.bindAt(i, 0);
-            MultiArrayView<(N-1>1?N-1:1), LabelType> rightLabelsRed = rightLabels.bindAt(i, 0);
-            // sadly, this does not work because callign bindAt on a 1d array returns a 0d array (contrary to spec!)
+//             MultiArrayView<(N-1>1?N-1:1), PixelType> leftRed = left.bindAt(i, 0);
+//             MultiArrayView<(N-1>1?N-1:1), PixelType> rightRed = right.bindAt(i, 0);
+//             MultiArrayView<(N-1>1?N-1:1), LabelType> leftLabelsRed = leftLabels.bindAt(i, 0);
+//             MultiArrayView<(N-1>1?N-1:1), LabelType> rightLabelsRed = rightLabels.bindAt(i, 0);
+            // sadly, this does not work because calling bindAt on a 1d array returns a 0d array (contrary to spec!)
 //             mergeLabels<(N-1>1?N-1:1), PixelType, LabelType>(leftRed, rightRed, leftLabelsRed, rightLabelsRed,
 //                         leftMap, rightMap, unionFind);
+            MultiArrayView<(N-1), PixelType> leftRed = left.bindAt(i, 0);
+            MultiArrayView<(N-1), PixelType> rightRed = right.bindAt(i, 0);
+            MultiArrayView<(N-1), LabelType> leftLabelsRed = leftLabels.bindAt(i, 0);
+            MultiArrayView<(N-1), LabelType> rightLabelsRed = rightLabels.bindAt(i, 0);
             mergeLabels(srcMultiArrayRange(leftRed), 
                         srcMultiArrayRange(rightRed),
                         srcMultiArrayRange(leftLabelsRed), 

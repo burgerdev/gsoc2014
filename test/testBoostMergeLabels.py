@@ -8,11 +8,12 @@ import unittest
 import numpy as np
 import vigra
 
-from lazycc import mergeLabels, UnionFindArray
+from lazycc._lazycc_cxx import mergeLabels
+from lazycc import UnionFindArray
 from helpers import assertEquivalentLabeling
 
 
-class TestMergeLabels(unittest.TestCase):
+class TestBoostMergeLabels(unittest.TestCase):
     def setUp(self):
         pass
 
@@ -35,7 +36,7 @@ class TestMergeLabels(unittest.TestCase):
         assert uf.find(6) != uf.find(2)
 
     def testVariousArrays(self):
-        for d in range(1, 5):
+        for d in range(1, 4):
             for pt in (np.uint8, np.uint32, np.uint64, np.float32):
                 for lt in (np.uint32,):
                     print("{}-dim, pixel type: {}, label type: {}".format(d, pt, lt))
