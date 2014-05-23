@@ -32,16 +32,6 @@ def _chunksynchronized(method):
             return method(self, chunkIndex, *args, **kwargs)
     return synchronizedmethod
 
-
-# locking decorator that locks per operator
-def _synchronized(method):
-    @wraps(method)
-    def synchronizedmethod(self, *args, **kwargs):
-        with self._lock:
-            return method(self, *args, **kwargs)
-    return synchronizedmethod
-
-
 # 3d data only, xyz
 class OpLazyCC(Operator):
     Input = InputSlot()
@@ -131,25 +121,30 @@ class OpLazyCC(Operator):
         pool.wait()
         pool.clean()
 
-        with self._lock:
-            if labels is None:
-                labels = self._getLabelsForChunk(chunkIndex)
-            else:
-                # update the labels to the latest state
-                labels = map(self._uf.find, labels)
-            if self._finalizedLabels[chunkIndex] is None:
-                self._finalizedLabels[chunkIndex] = np.zeros((0,),
-                                                             dtype=_LABEL_TYPE)
-            otherLabels = map(lambda x: self._getLabelsForChunk(x), neighbours)
+        if labels is None:
+            labels = self._getLabelsForChunk(chunkIndex)
 
-            # let the others know that we are finalizing this chunk
+        if self._finalizedLabels[chunkIndex] is None:
+            self._finalizedLabels[chunkIndex] = np.zeros((0,),
+                                                         dtype=_LABEL_TYPE)
+
+        # let the others know that we are finalizing this chunk
+        # and compute the updated labels on the way
+        with self._lock:
             finalized = map(self._uf.find, self._finalizedLabels[chunkIndex])
-            now_finalized = np.union1d(finalized, labels).astype(_LABEL_TYPE)
-            self._finalizedLabels[chunkIndex] = now_finalized
+            labels = map(self._uf.find, labels)
+            # now that we have the lock, lets globalize the neighbouring labels
+            otherLabels = \
+                map(lambda x: map(self._uf.find, self._getLabelsForChunk(x)),
+                    neighbours)
+
+        now_finalized = np.union1d(finalized, labels).astype(_LABEL_TYPE)
+        self._finalizedLabels[chunkIndex] = now_finalized
+
         labels = np.setdiff1d(labels, finalized)
 
         for i, l in zip(neighbours, otherLabels):
-            d = np.intersect1d(labels, l, assume_unique=True)
+            d = np.intersect1d(labels, l)
             # don't go to finalized neighbours
             if self._finalizedLabels[i] is not None:
                 finalized = map(self._uf.find, self._finalizedLabels[i])
@@ -233,7 +228,6 @@ class OpLazyCC(Operator):
     # get a rectangular region with final global labels
     # @param roi region of interest
     # @param result array of shape roi.stop - roi.start, will be filled
-    @_synchronized
     def _mapArray(self, roi, result):
         # TODO perhaps with pixeloperator?
         assert np.all(roi.stop - roi.start == result.shape)
@@ -314,13 +308,12 @@ class OpLazyCC(Operator):
 
     # returns an array of global labels in use by this chunk if 'mapping' is
     # False, a mapping of local labels to global labels otherwise
-    @_synchronized
     def _getLabelsForChunk(self, chunkIndex, mapping=False):
         offset = self._globalLabelOffset[chunkIndex]
         numLabels = self._numLabels[chunkIndex]
         labels = np.arange(1, numLabels+1, dtype=_LABEL_TYPE) + offset
         if not mapping:
-            return np.unique(map(self._uf.find, labels)).astype(_LABEL_TYPE)
+            return labels
         else:
             # we got 'numLabels' real labels, and one label '0', so our
             # output has to have numLabels+1 elements
