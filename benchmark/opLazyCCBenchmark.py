@@ -12,6 +12,7 @@ from timeit import timeit, repeat
 import numpy as np
 import vigra
 
+
 def runSingleBenchmark(op, op2, vol, chunkShape):
     x, y, z = chunkShape
     op.Input.setValue(vol)
@@ -19,17 +20,17 @@ def runSingleBenchmark(op, op2, vol, chunkShape):
 
     res = timeit("out = op.Output[:x, :y, :z].wait()",
                  setup="from __main__ import op, x, y, z", number=1)
-    print("  Took {:.3f}ms for small region".format(res*1000))
+    print("  Took {:.3f}ms for one chunk".format(res*1000))
 
+    # benchmark calculation of one chunk
     op2.Input.setValue(vol)
     op2.Input.setDirty(slice(None))
     res = timeit("out = op2.Output[:x, :y, :z].wait()",
                  setup="from __main__ import op2, x, y, z", number=1)
-    print("  Compare to {:.3f}ms for OpLabelVolume small region (raw)".format(res*1000))
+    print("  Compare to {:.3f}ms for OpLabelVolume one chunk (raw)".format(res*1000))
     res = timeit("out = op2.CachedOutput[:x, :y, :z].wait()",
                  setup="from __main__ import op2, x, y, z", number=1)
-    print("  Compare to {:.3f}ms for OpLabelVolume small region (cached)".format(res*1000))
-    #print(op2.CachedOutput[:10,:10, :1].wait().squeeze())
+    print("  Compare to {:.3f}ms for OpLabelVolume one chunk (cached)".format(res*1000))
 
     op.Input.setValue(vol)
     op.ChunkShape.setValue(chunkShape)
@@ -58,20 +59,25 @@ def runSingleBenchmark(op, op2, vol, chunkShape):
 if __name__ == "__main__":
     op = OpLazyCC(graph=Graph())
     op2 = OpLabelVolume(graph=Graph())
-    vol = np.zeros((1000, 100, 10))
+    vol = np.zeros((200, 200, 200))
     vol = vol.astype(np.uint8)
     vol = vigra.taggedView(vol, axistags='xyz')
-    vol[:200, :10, ...] = 1
-    vol[800:, ...] = 1
-    chunkShape = (100, 10, 10)
+    vol[:60, :60, :60] = 1
+    chunkShape = (50, 50, 50)
     x, y, z = chunkShape
-    print("Dense Labels")
+    print("===========================")
+    print("Huge objects")
     runSingleBenchmark(op, op2, vol, chunkShape)
-    
-    vol[:] = 0
-    print("No Labels")
-    runSingleBenchmark(op, op2, vol, chunkShape)
+    print("===========================")
 
-    vol[:] = np.random.randint(100, size=vol.shape) > 95 
-    print("Sparse Labels")
+    vol[:] = 0
+    print("No Objects")
     runSingleBenchmark(op, op2, vol, chunkShape)
+    print("===========================")
+
+    # want to have few objects on boundaries (250*2 elements on boundary)
+    # chance of 1/4 of an pobject to ly on boundary
+    vol[:] = np.random.randint(2000, size=vol.shape) == 0
+    print("Sparse Objects")
+    runSingleBenchmark(op, op2, vol, chunkShape)
+    print("===========================")

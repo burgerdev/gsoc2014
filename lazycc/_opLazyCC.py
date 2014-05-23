@@ -7,13 +7,13 @@ import vigra
 import logging
 
 from collections import defaultdict
-from threading import RLock
 from functools import partial, wraps
 
 from lazyflow.operator import Operator, InputSlot, OutputSlot
 from lazyflow.rtype import SubRegion
 from lazyflow.operators import OpCompressedCache
 from lazyflow.request import Request, RequestPool
+from lazyflow.request import RequestLock as RLock
 
 from lazycc import UnionFindArray
 
@@ -31,6 +31,7 @@ def _chunksynchronized(method):
         with self._chunk_locks[chunkIndex]:
             return method(self, chunkIndex, *args, **kwargs)
     return synchronizedmethod
+
 
 # 3d data only, xyz
 class OpLazyCC(Operator):
@@ -84,6 +85,17 @@ class OpLazyCC(Operator):
     def execute(self, slot, subindex, roi, result):
         assert slot is self.Output, "Invalid request to execute"
 
+        # this has not proven to be any better
+        '''
+        pool = RequestPool()
+
+        chunks = self._roiToChunkIndex(roi)
+        for i in np.random.permutation(np.arange(len(chunks), dtype=np.int)):
+            pool.add(Request(partial(self._finalize, chunks[i])))
+
+        pool.wait()
+        pool.clean()
+        '''
         chunks = self._roiToChunkIndex(roi)
         for chunk in chunks:
             self._finalize(chunk)
@@ -115,11 +127,16 @@ class OpLazyCC(Operator):
             self._label(chunk)
             self._merge(*self._orderPair(chunkIndex, chunk))
 
+        # this is apparently also not that good
+        '''
         pool = RequestPool()
         for otherChunk in neighbours:
             pool.add(Request(partial(processNeighbour, otherChunk)))
         pool.wait()
         pool.clean()
+        '''
+        for other in neighbours:
+            processNeighbour(other)
 
         if labels is None:
             labels = self._getLabelsForChunk(chunkIndex)
@@ -195,6 +212,7 @@ class OpLazyCC(Operator):
         if chunkB in self._mergeMap[chunkA]:
             return
         logger.info("Merging {} {} ...".format(chunkA, chunkB))
+        self._mergeMap[chunkA].append(chunkB)
 
         hyperplane_roi_a, hyperplane_roi_b = \
             self._chunkIndexToHyperplane(chunkA, chunkB)
@@ -223,7 +241,6 @@ class OpLazyCC(Operator):
         with self._lock:
             for a, b in zip(labels_a, labels_b):
                 self._uf.makeUnion(a, b)
-        self._mergeMap[chunkA].append(chunkB)
 
     # get a rectangular region with final global labels
     # @param roi region of interest
