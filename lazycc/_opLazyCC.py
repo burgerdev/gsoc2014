@@ -15,38 +15,38 @@ from lazyflow.rtype import SubRegion
 from lazyflow.operators import OpCompressedCache
 from lazyflow.request import Request, RequestPool
 
-#from lazycc import mergeLabels
 from lazycc import UnionFindArray
 
-#logging.basicConfig()
+# logging.basicConfig()
 logger = logging.getLogger(__name__)
-#logger.setLevel(logging.DEBUG)
+# logger.setLevel(logging.DEBUG)
 
 _LABEL_TYPE = np.uint32
 
 
-## 3d data only, xyz
+# locking decorator that locks per chunk
+def _chunksynchronized(method):
+    @wraps(method)
+    def synchronizedmethod(self, chunkIndex, *args, **kwargs):
+        with self._chunk_locks[chunkIndex]:
+            return method(self, chunkIndex, *args, **kwargs)
+    return synchronizedmethod
+
+
+# locking decorator that locks per operator
+def _synchronized(method):
+    @wraps(method)
+    def synchronizedmethod(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+    return synchronizedmethod
+
+
+# 3d data only, xyz
 class OpLazyCC(Operator):
     Input = InputSlot()
     ChunkShape = InputSlot()
     Output = OutputSlot()
-
-    _FakeOutput = OutputSlot()
-
-
-    def chunksynchronized(method):
-        @wraps(method)
-        def synchronizedmethod(self, chunkIndex, *args, **kwargs):
-            with self._chunk_locks[chunkIndex]:
-                return method(self, chunkIndex, *args, **kwargs)
-        return synchronizedmethod
-    
-    def synchronized(method):
-        @wraps(method)
-        def synchronizedmethod(self, *args, **kwargs):
-            with self._lock:
-                return method(self, *args, **kwargs)
-        return synchronizedmethod
 
     def __init__(self, *args, **kwargs):
         super(OpLazyCC, self).__init__(*args, **kwargs)
@@ -55,8 +55,8 @@ class OpLazyCC(Operator):
     def setupOutputs(self):
         self.Output.meta.assignFrom(self.Input.meta)
         self.Output.meta.dtype = _LABEL_TYPE
-        self._FakeOutput.meta.assignFrom(self.Output.meta)
-        assert self.Input.meta.dtype in [np.uint8, np.uint32, np.uint64]
+        assert self.Input.meta.dtype in [np.uint8, np.uint32, np.uint64],\
+            "Cannot label data type {}".format(self.Input.meta.dtype)
 
         # chunk array shape calculation
         shape = self.Input.meta.shape
@@ -69,11 +69,10 @@ class OpLazyCC(Operator):
         self._chunkShape = np.asarray(chunkShape, dtype=np.int)
 
         # keep track of number of labels in chunk (-1 == not labeled yet)
-        self._numLabels = -np.ones(self._chunkArrayShape, dtype=np.int64)
+        self._numLabels = -np.ones(self._chunkArrayShape, dtype=np.int32)
         locks = [RLock() for i in xrange(self._numLabels.size)]
         locks = np.asarray(locks, dtype=np.object)
         self._chunk_locks = locks.reshape(self._numLabels.shape)
-        
 
         # keep track of the labels that have been finalized
         self._finalizedLabels = np.empty(self._chunkArrayShape,
@@ -85,10 +84,11 @@ class OpLazyCC(Operator):
 
         # global union find data structure
         self._uf = UnionFindArray(_LABEL_TYPE(1))
-        
+
         # keep track of merged regions
         self._mergeMap = defaultdict(list)
 
+        # cache for local labels
         self._cache = vigra.ChunkedArrayCompressed(shape, dtype=_LABEL_TYPE)
 
     def execute(self, slot, subindex, roi, result):
@@ -103,11 +103,11 @@ class OpLazyCC(Operator):
     def propagateDirty(self, slot, subindex, roi):
         # TODO: this is already correct, but may be over-zealous
         # we would have to label each chunk that was set dirty and check
-        # for changed labels. THerefore, we would have to check if the
+        # for changed labels. Therefore, we would have to check if the
         # dirty region is 'small enough', etc etc.
         self.Output.setDirty(slice(None))
 
-    ## grow the requested region such that all labels inside that region are
+    # grow the requested region such that all labels inside that region are
     # final
     # @param chunkIndex the index of the chunk to finalize
     # @param labels array of labels that need to be finalized (omit for all)
@@ -160,8 +160,8 @@ class OpLazyCC(Operator):
                 # start DFS recursion
                 self._finalize(i, labels=d)
 
-    ## label a chunk and store information
-    @chunksynchronized
+    # label a chunk and store information
+    @_chunksynchronized
     def _label(self, chunkIndex):
         if self._numLabels[chunkIndex] >= 0:
             # this chunk is already labeled
@@ -174,13 +174,10 @@ class OpLazyCC(Operator):
         # label the raw data
         logger.info("Labeling {} ...".format(chunkIndex))
         labeled = vigra.analysis.labelVolumeWithBackground(inputChunk)
-        #logger.info("Done labeling")
         del inputChunk
 
         # store the labeled data in cache
-        #logger.info("Caching {} into {} ...".format(chunkIndex, roi))
         self._cache[roi.toSlice()] = labeled
-        #logger.info("Done caching")
 
         # update the labeling information
         numLabels = labeled.max()  # we ignore 0 here
@@ -197,21 +194,24 @@ class OpLazyCC(Operator):
                 for i in range(numLabels-1):
                     self._uf.makeNewLabel()
 
-    # merge chunks
-    @chunksynchronized
+    # merge the labels of two adjacent chunks
+    @_chunksynchronized
     def _merge(self, chunkA, chunkB):
         if chunkB in self._mergeMap[chunkA]:
             return
         logger.info("Merging {} {} ...".format(chunkA, chunkB))
 
-        hyperplane_index_a, hyperplane_index_b = \
+        hyperplane_roi_a, hyperplane_roi_b = \
             self._chunkIndexToHyperplane(chunkA, chunkB)
+        hyperplane_index_a = hyperplane_roi_a.toSlice()
+        hyperplane_index_b = hyperplane_roi_b.toSlice()
+
         label_hyperplane_a = self._cache[hyperplane_index_a]
         label_hyperplane_b = self._cache[hyperplane_index_b]
-        
+
         # see if we have border labels at all
         adjacent_bool_inds = np.logical_and(label_hyperplane_a > 0,
-                                          label_hyperplane_b > 0)
+                                            label_hyperplane_b > 0)
         if not np.any(adjacent_bool_inds):
             return
 
@@ -230,10 +230,13 @@ class OpLazyCC(Operator):
                 self._uf.makeUnion(a, b)
         self._mergeMap[chunkA].append(chunkB)
 
-    @synchronized
+    # get a rectangular region with final global labels
+    # @param roi region of interest
+    # @param result array of shape roi.stop - roi.start, will be filled
+    @_synchronized
     def _mapArray(self, roi, result):
         # TODO perhaps with pixeloperator?
-        assert np.all(roi.stop -roi.start == result.shape)
+        assert np.all(roi.stop - roi.start == result.shape)
         indices = self._roiToChunkIndex(roi)
         for idx in indices:
             newroi = self._chunkIndexToRoi(idx)
@@ -246,6 +249,7 @@ class OpLazyCC(Operator):
             s = newroi.toSlice()
             result[s] = labels[chunk]
 
+    # create roi object from chunk index
     def _chunkIndexToRoi(self, index):
         shape = self.Input.meta.shape
         start = self._chunkShape * np.asarray(index)
@@ -255,6 +259,7 @@ class OpLazyCC(Operator):
                         start=tuple(start), stop=tuple(stop))
         return roi
 
+    # create a list of chunk indices needed for a particular roi
     def _roiToChunkIndex(self, roi):
         cs = self._chunkShape
         start = np.asarray(roi.start)
@@ -270,6 +275,8 @@ class OpLazyCC(Operator):
                     chunks.append((x, y, z))
         return chunks
 
+    # compute the adjacent hyperplanes of two chunks (1 pix wide)
+    # @return 2-tuple of roi's for the respective chunk
     def _chunkIndexToHyperplane(self, chunkA, chunkB):
         rev = False
         for i in range(len(chunkA)):
@@ -286,10 +293,11 @@ class OpLazyCC(Operator):
                 stop[i] = roiB.start[i] + 1
                 roiB.stop = tuple(stop)
         if rev:
-            return roiB.toSlice(), roiA.toSlice()
+            return roiB, roiA
         else:
-            return roiA.toSlice(), roiB.toSlice()
+            return roiA, roiB
 
+    # generate a list of adjacent chunks
     def _generateNeighbours(self, chunkIndex):
         n = []
         idx = np.asarray(chunkIndex, dtype=np.int)
@@ -304,9 +312,9 @@ class OpLazyCC(Operator):
                 n.append(tuple(new))
         return n
 
-    # returns an array of labels in use if mapping is False, a mapping
-    # of local labels to global labels otherwise
-    @synchronized
+    # returns an array of global labels in use by this chunk if 'mapping' is
+    # False, a mapping of local labels to global labels otherwise
+    @_synchronized
     def _getLabelsForChunk(self, chunkIndex, mapping=False):
         offset = self._globalLabelOffset[chunkIndex]
         numLabels = self._numLabels[chunkIndex]
@@ -317,17 +325,19 @@ class OpLazyCC(Operator):
             # we got 'numLabels' real labels, and one label '0', so our
             # output has to have numLabels+1 elements
             idx = np.arange(numLabels+1, dtype=_LABEL_TYPE)
-            
+
             # real labels start at offset+1 and go up to (including)
             # numLabels+offset
             idx += offset
-            
+
             # 0 always maps to 0!
             idx[0] = 0
-            
+
             out = np.asarray(map(self._uf.find, idx), dtype=_LABEL_TYPE)
             return out
 
+    # order a pair of chunk indices lexicographically
+    # (ret[0] is top-left-in-front-of of ret[1])
     @staticmethod
     def _orderPair(tupA, tupB):
         for a, b in zip(tupA, tupB):
