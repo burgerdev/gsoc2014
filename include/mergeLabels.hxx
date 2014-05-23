@@ -17,25 +17,27 @@
 
 #include <iostream>
 
+#include "inspectFourMultiArrays.hxx"
+
 namespace vigra {
 
     
 template <class PixelIterator, class PixelAccessor, class SrcShape,
           class LabelIterator, class LabelAccessor,class EqualityFunctor>
 inline void
-mergeLabels(PixelIterator leftIter, PixelAccessor leftAcc,
-            PixelIterator rightIter, PixelAccessor rightAcc,
-            LabelIterator leftLabelsIter, LabelAccessor leftLabelsAcc,
-            LabelIterator rightLabelsIter, LabelAccessor rightLabelsAcc,
-            SrcShape shape,
+mergeLabels(PixelIterator & leftIter, PixelAccessor & leftAcc,
+            PixelIterator & rightIter, PixelAccessor & rightAcc,
+            LabelIterator & leftLabelsIter, LabelAccessor & leftLabelsAcc,
+            LabelIterator & rightLabelsIter, LabelAccessor & rightLabelsAcc,
+            SrcShape & shape,
             MultiArrayView<1, typename LabelAccessor::value_type> const & leftMap,
             MultiArrayView<1, typename LabelAccessor::value_type> const & rightMap,
             detail::UnionFindArray<typename LabelAccessor::value_type> & unionFind,
             EqualityFunctor equal)
 {
     static const int N = SrcShape::static_size;
-    typedef typename SrcShape::value_type VTYPE;
-    typedef TinyVector<VTYPE, (N-1>1 ? N-1 : 1)> NextSrcShape;
+    typedef MultiArrayShape<(N-1>1 ? N-1 : 1)> MAS;
+    typedef typename MAS::type NextSrcShape;
     
     
     int width = shape[N-1];
@@ -174,6 +176,44 @@ mergeLabels(MultiArrayView<N, PixelType> const & left,
 //                 std::equal_to<PixelType>());
 }
 
+template <class LabelType, class EqualityFunctor, class MapClass>
+struct UnionFunctor
+{
+    detail::UnionFindArray<LabelType> uf_;
+    EqualityFunctor ef_;
+    const MapClass & leftMap_;
+    const MapClass & rightMap_;
+    
+    UnionFunctor(detail::UnionFindArray<LabelType> uf, EqualityFunctor ef,
+                 const MapClass & leftMap, const MapClass & rightMap) 
+                : uf_(uf), ef_(ef), leftMap_(leftMap), rightMap_(rightMap) {}
+    
+    template <class PixelType>
+    void operator()(const PixelType & a, const PixelType & b, 
+                    const LabelType & c, const LabelType & d)
+    {
+        if(ef_(a, b) && c > 0)
+        {
+            uf_.makeUnion(leftMap_[c],
+                          rightMap_[d]);
+        }
+    }
+};
+
+template <int N, class PixelType, class LabelType>
+inline void
+mergeLabelsInspect(MultiArrayView<N, PixelType> const & left,
+            MultiArrayView<N, PixelType> const & right,
+            MultiArrayView<N, LabelType> const & leftLabels,
+            MultiArrayView<N, LabelType> const & rightLabels,
+            MultiArrayView<1, LabelType> const & leftMap,
+            MultiArrayView<1, LabelType> const & rightMap,
+            detail::UnionFindArray<LabelType> & unionFind)
+{
+    UnionFunctor<LabelType, std::equal_to<PixelType>, MultiArrayView<1, LabelType> > 
+        func(unionFind, std::equal_to<PixelType>(), leftMap, rightMap);
+    inspectFourMultiArrays(left, right, leftLabels, rightLabels, func);
+}
 
 
 } // namespace vigra

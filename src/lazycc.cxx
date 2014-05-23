@@ -1,8 +1,6 @@
 // define PY_ARRAY_UNIQUE_SYMBOL (required by the numpy C-API)
 #define PY_ARRAY_UNIQUE_SYMBOL lazycc_PyArray_API
 
-#include <string>
-
 // include the vigranumpy C++ API
 #include <Python.h>
 #include <boost/python.hpp>
@@ -144,6 +142,21 @@ inline void pythonMergeLabels1d(NumpyArray<1, Singleband<PixelType> > left,
 
 VIGRA_PYTHON_MULTITYPE_FUNCTOR(pyMergeLabels1d, pythonMergeLabels1d)
 
+template <class PixelType>
+inline void pythonMergeLabelsInspect3d(NumpyArray<3, Singleband<PixelType> > left,
+                 NumpyArray<3, Singleband<PixelType> > right,
+                 NumpyArray<3, Singleband<npy_uint32> > leftLabels,
+                 NumpyArray<3, Singleband<npy_uint32> > rightLabels,
+                 NumpyArray<1, Singleband<npy_uint32> > leftMap,
+                 NumpyArray<1, Singleband<npy_uint32> > rightMap,
+                 detail::UnionFindArray<npy_uint32> & unionFind) {
+    
+    //PyAllowThreads _pythread;
+    mergeLabelsInspect<3, PixelType, npy_uint32>(left, right, leftLabels, rightLabels, leftMap, rightMap, unionFind);
+}
+
+VIGRA_PYTHON_MULTITYPE_FUNCTOR(pyMergeLabelsInspect3d, pythonMergeLabelsInspect3d)
+
 
 } // namespace vigra
 
@@ -175,6 +188,16 @@ void exportMergeLabels() {
     
     multidef("mergeLabels", 
              pyMergeLabels1d<npy_uint8, npy_uint32, npy_uint64, float>(),
+             (
+                 arg("left_image"), arg("right_image"),
+              arg("left_labels"), arg("right_labels"),
+              arg("left_mapping"), arg("right_mapping"),
+              arg("UnionFind")
+             ),
+             "Bla\n");
+    
+    multidef("mergeLabelsInspect", 
+             pyMergeLabelsInspect3d<npy_uint8, npy_uint32, npy_uint64, float>(),
              (
                  arg("left_image"), arg("right_image"),
               arg("left_labels"), arg("right_labels"),

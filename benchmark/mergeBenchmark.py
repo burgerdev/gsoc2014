@@ -4,6 +4,7 @@
 
 from lazycc._merge import mergeLabels as pyMergeLabels
 from lazycc._lazycc_cxx import mergeLabels as cMergeLabels
+from lazycc._lazycc_cxx import mergeLabelsInspect as cMergeLabelsInspect
 from lazycc import UnionFindArray
 
 from timeit import timeit, repeat
@@ -41,7 +42,7 @@ if __name__ == "__main__":
     cmd = "{}(left, right, labels_left, labels_right, "\
           "map_left, map_right, uf)"
 
-    for impl in ["pyMergeLabels", "cMergeLabels"]:
+    for impl in ["pyMergeLabels", "cMergeLabels", "cMergeLabelsInspect"]:
         print("{} for shape {}:".format(cmd.format(impl), left.shape))
         res = repeat(cmd.format(impl), setup=setup.format(impl),
                      repeat=1, number=50)
