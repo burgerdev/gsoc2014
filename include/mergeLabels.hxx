@@ -35,6 +35,7 @@ mergeLabels(PixelIterator leftIter, PixelAccessor leftAcc,
 {
     static const int N = SrcShape::static_size;
     typedef typename SrcShape::value_type VTYPE;
+    typedef typename LabelIterator::value_type LabelType;
     typedef TinyVector<VTYPE, (N-1>1 ? N-1 : 1)> NextSrcShape;
     
     
@@ -66,6 +67,8 @@ mergeLabels(PixelIterator leftIter, PixelAccessor leftAcc,
     }
     else
     {
+        LabelType* lm = leftMap.data();
+        LabelType* rm = rightMap.data();
         for (int i=0; i < width; 
         i++, leftIter.template dim<N-1>()++, rightIter.template dim<N-1>()++,
         leftLabelsIter.template dim<N-1>()++, rightLabelsIter.template dim<N-1>()++)
@@ -74,8 +77,8 @@ mergeLabels(PixelIterator leftIter, PixelAccessor leftAcc,
             {
                 if(leftLabelsAcc(leftLabelsIter) > 0)
                 {
-                    unionFind.makeUnion(leftMap[leftLabelsAcc(leftLabelsIter)],
-                                        rightMap[rightLabelsAcc(rightLabelsIter)]);
+                    unionFind.makeUnion(lm[leftLabelsAcc(leftLabelsIter)],
+                                        rm[rightLabelsAcc(rightLabelsIter)]);
                 }
             }
             
@@ -117,6 +120,7 @@ mergeLabels(MultiArrayView<N, PixelType> const & left,
     vigra_precondition(left.shape() == right.shape(), "mergeLabels(): Data arrays shape mismatch");
     vigra_precondition(leftLabels.shape() == rightLabels.shape(), "mergeLabels(): Label arrays shape mismatch");
     vigra_precondition(leftLabels.shape() == left.shape(), "mergeLabels(): Labels/Data shape mismatch");
+    vigra_precondition(leftMap.isUnstrided() && rightMap.isUnstrided(), "maps must be unstrided");
     
     typedef typename MultiArrayView<N, PixelType>::difference_type TinyVec;
     
@@ -134,30 +138,6 @@ mergeLabels(MultiArrayView<N, PixelType> const & left,
     typedef typename MultiArrayView<N, PixelType>::difference_type TinyVec;
     TinyVec shape = left.shape();
     
-    for (int i=0; N > 1 && i < shape.size(); i++)
-    {
-        if (shape[i] == 1)
-        {
-//             MultiArrayView<(N-1>1?N-1:1), PixelType> leftRed = left.bindAt(i, 0);
-//             MultiArrayView<(N-1>1?N-1:1), PixelType> rightRed = right.bindAt(i, 0);
-//             MultiArrayView<(N-1>1?N-1:1), LabelType> leftLabelsRed = leftLabels.bindAt(i, 0);
-//             MultiArrayView<(N-1>1?N-1:1), LabelType> rightLabelsRed = rightLabels.bindAt(i, 0);
-            // sadly, this does not work because calling bindAt on a 1d array returns a 0d array (contrary to spec!)
-//             mergeLabels<(N-1>1?N-1:1), PixelType, LabelType>(leftRed, rightRed, leftLabelsRed, rightLabelsRed,
-//                         leftMap, rightMap, unionFind);
-            MultiArrayView<(N-1), PixelType> leftRed = left.bindAt(i, 0);
-            MultiArrayView<(N-1), PixelType> rightRed = right.bindAt(i, 0);
-            MultiArrayView<(N-1), LabelType> leftLabelsRed = leftLabels.bindAt(i, 0);
-            MultiArrayView<(N-1), LabelType> rightLabelsRed = rightLabels.bindAt(i, 0);
-            mergeLabels(srcMultiArrayRange(leftRed), 
-                        srcMultiArrayRange(rightRed),
-                        srcMultiArrayRange(leftLabelsRed), 
-                        srcMultiArrayRange(rightLabelsRed),
-                        leftMap, rightMap, unionFind,
-                        std::equal_to<PixelType>());
-            return;
-        }
-    }
     
     mergeLabels(srcMultiArrayRange(left), 
                 srcMultiArrayRange(right),
@@ -165,14 +145,53 @@ mergeLabels(MultiArrayView<N, PixelType> const & left,
                 srcMultiArrayRange(rightLabels),
                 leftMap, rightMap, unionFind,
                 std::equal_to<PixelType>());
-    
-//     mergeLabels(srcMultiArrayRange(leftOrdered), 
-//                 srcMultiArrayRange(rightOrdered),
-//                 srcMultiArrayRange(leftLabelsOrdered), 
-//                 srcMultiArrayRange(rightLabelsOrdered),
-//                 leftMap, rightMap, unionFind,
-//                 std::equal_to<PixelType>());
+
 }
+
+template <int N, class PixelType, class LabelType>
+inline void
+mergeLabelsRaw(MultiArrayView<N, PixelType> const & left,
+            MultiArrayView<N, PixelType> const & right,
+            MultiArrayView<N, LabelType> const & leftLabels,
+            MultiArrayView<N, LabelType> const & rightLabels,
+            MultiArrayView<1, LabelType> const & leftMap,
+            MultiArrayView<1, LabelType> const & rightMap,
+            detail::UnionFindArray<LabelType> & unionFind)
+{
+    vigra_precondition(left.shape() == right.shape(), "mergeLabels(): Data arrays shape mismatch");
+    vigra_precondition(leftLabels.shape() == rightLabels.shape(), "mergeLabels(): Label arrays shape mismatch");
+    vigra_precondition(leftLabels.shape() == left.shape(), "mergeLabels(): Labels/Data shape mismatch");
+    vigra_precondition(leftMap.isUnstrided() && rightMap.isUnstrided(), "map arrays must be unstrided");
+    vigra_precondition(left.isUnstrided() && right.isUnstrided(), "pixel arrays must be unstrided");
+    vigra_precondition(leftLabels.isUnstrided() && rightLabels.isUnstrided(), "label arrays must be unstrided");
+    
+    
+    PixelType* ldata = left.data();
+    PixelType* rdata = right.data();
+    
+    LabelType* lldata = leftLabels.data();
+    LabelType* rldata = rightLabels.data();
+    
+    LabelType* lmdata = leftMap.data();
+    LabelType* rmdata = rightMap.data();
+    
+    typename MultiArrayView<N, PixelType>::difference_type_1 end = left.size();
+    
+    for (int i=0; i < end; i++)
+    {
+        if(ldata[i] == rdata[i])
+        {
+            if(lldata[i] > 0)
+            {
+                unionFind.makeUnion(lmdata[lldata[i]],
+                                    rmdata[rldata[i]]);
+            }
+        }
+    }
+    
+    
+}
+
 
 
 
