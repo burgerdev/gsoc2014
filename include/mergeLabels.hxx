@@ -23,7 +23,7 @@ namespace vigra {
 template <class PixelIterator, class PixelAccessor, class SrcShape,
           class LabelIterator, class LabelAccessor,class EqualityFunctor>
 inline void
-mergeLabels(PixelIterator leftIter, PixelAccessor leftAcc,
+mergeLabelsOldIter(PixelIterator leftIter, PixelAccessor leftAcc,
             PixelIterator rightIter, PixelAccessor rightAcc,
             LabelIterator leftLabelsIter, LabelAccessor leftLabelsAcc,
             LabelIterator rightLabelsIter, LabelAccessor rightLabelsAcc,
@@ -55,7 +55,7 @@ mergeLabels(PixelIterator leftIter, PixelAccessor leftAcc,
             
             NextSrcShape nextShape;
             nextShape.copy(shape);
-            mergeLabels<PixelIterator, PixelAccessor, NextSrcShape, 
+            mergeLabelsOldIter<PixelIterator, PixelAccessor, NextSrcShape, 
                         LabelIterator, LabelAccessor, EqualityFunctor>(
                             leftIterNext, leftAcc,
                             rightIterNext, rightAcc,
@@ -90,7 +90,7 @@ mergeLabels(PixelIterator leftIter, PixelAccessor leftAcc,
 template <class PixelIterator, class PixelAccessor, class SrcShape,
           class LabelIterator, class LabelAccessor,class EqualityFunctor>
 inline void 
-mergeLabels(triple<PixelIterator, SrcShape, PixelAccessor> left,
+mergeLabelsOldIter(triple<PixelIterator, SrcShape, PixelAccessor> left,
             triple<PixelIterator, SrcShape, PixelAccessor> right,
             triple<LabelIterator, SrcShape, LabelAccessor> leftLabels,
             triple<LabelIterator, SrcShape, LabelAccessor> rightLabels,
@@ -99,7 +99,7 @@ mergeLabels(triple<PixelIterator, SrcShape, PixelAccessor> left,
             detail::UnionFindArray<typename LabelAccessor::value_type> & unionFind, 
             EqualityFunctor equal)
 {
-    mergeLabels(left.first, left.third,
+    mergeLabelsOldIter(left.first, left.third,
                 right.first, right.third,
                 leftLabels.first, leftLabels.third,
                 rightLabels.first,rightLabels.third,
@@ -109,7 +109,7 @@ mergeLabels(triple<PixelIterator, SrcShape, PixelAccessor> left,
 
 template <int N, class PixelType, class LabelType>
 inline void
-mergeLabels(MultiArrayView<N, PixelType> const & left,
+mergeLabelsOldIter(MultiArrayView<N, PixelType> const & left,
             MultiArrayView<N, PixelType> const & right,
             MultiArrayView<N, LabelType> const & leftLabels,
             MultiArrayView<N, LabelType> const & rightLabels,
@@ -147,6 +147,71 @@ mergeLabels(MultiArrayView<N, PixelType> const & left,
                 std::equal_to<PixelType>());
 
 }
+
+template <class PixelIterator, class LabelIterator, class LabelType,
+          class Shape, class EqualityFunctor>
+inline void
+mergeLabels(PixelIterator left,
+            PixelIterator right,
+            LabelIterator leftLabels,
+            LabelIterator rightLabels,
+            const Shape & shape,
+            MultiArrayView<1, LabelType> const & leftMap,
+            MultiArrayView<1, LabelType> const & rightMap,
+            detail::UnionFindArray<LabelType> & unionFind,
+            EqualityFunctor equal, int n
+           )
+{
+    int i = 0;
+    if (n>0)
+    {
+        for(left.resetDim(n), right.resetDim(n), leftLabels.resetDim(n), rightLabels.resetDim(n);
+            i < shape[n];
+            left.incDim(2), right.incDim(2), leftLabels.incDim(2), rightLabels.incDim(2), i++)
+        {
+            mergeLabels(left, right, leftLabels, rightLabels, shape, leftMap, rightMap, unionFind, equal, n-1);
+        }
+    }
+    else
+    {
+        LabelType * lmap = leftMap.data();
+        LabelType * rmap = rightMap.data();
+        for(left.resetDim(n), right.resetDim(n), leftLabels.resetDim(n), rightLabels.resetDim(n);
+            i < shape[n];
+            left.incDim(n), right.incDim(n), leftLabels.incDim(n), rightLabels.incDim(n), i++)
+        {
+            if (equal(*left, *right) && *leftLabels>0)
+            {
+                unionFind.makeUnion(lmap[*leftLabels], rmap[*rightLabels]);
+            }
+        }
+    }
+}
+
+template <int N, class PixelType, class LabelType>
+inline void
+mergeLabels(MultiArrayView<N, PixelType> const & left,
+            MultiArrayView<N, PixelType> const & right,
+            MultiArrayView<N, LabelType> const & leftLabels,
+            MultiArrayView<N, LabelType> const & rightLabels,
+            MultiArrayView<1, LabelType> const & leftMap,
+            MultiArrayView<1, LabelType> const & rightMap,
+            detail::UnionFindArray<LabelType> & unionFind)
+{
+    vigra_precondition(left.shape() == right.shape(), "mergeLabels(): Data arrays shape mismatch");
+    vigra_precondition(leftLabels.shape() == rightLabels.shape(), "mergeLabels(): Label arrays shape mismatch");
+    vigra_precondition(leftLabels.shape() == left.shape(), "mergeLabels(): Labels/Data shape mismatch");
+    vigra_precondition(leftMap.isUnstrided() && rightMap.isUnstrided(), "maps must be unstrided");
+
+    
+    mergeLabels(left.begin(), right.begin(),
+                leftLabels.begin(), rightLabels.begin(),
+                left.shape(),
+                leftMap, rightMap, unionFind,
+                std::equal_to<PixelType>(), N-1);
+    
+}
+
 
 template <int N, class PixelType, class LabelType>
 inline void
