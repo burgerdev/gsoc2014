@@ -8,9 +8,9 @@ LFLAGS=-lpython2.7
 
 HEADER=../include/mergeLabels.hxx
 
-all: bench46 bench49
+all: bench46 bench
 
-bench49: benchmark_merge_labels.cxx $(HEADER) Makefile
+bench: benchmark_merge_labels.cxx $(HEADER) Makefile
 	$(CC) $(CFLAGS) $< $(IFLAGS) $(LFLAGS) -o $@
 
 bench46: benchmark_merge_labels.cxx $(HEADER) Makefile
