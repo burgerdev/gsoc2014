@@ -27,9 +27,19 @@ int main()
     
     USETICTOC
     
+    std::cerr << "recursive implementation" << std::endl;
+    
+    TIC
+    vigra::mergeLabels<2, PixelType, LabelType>(left, right, leftLabels, rightLabels, leftMap, rightMap, uf);
+    TOC
+    
+    std::cerr << "recursive implementation, reordered" << std::endl;
+    
     TIC
     vigra::mergeLabels<2, PixelType, LabelType>(left.transpose(), right.transpose(), leftLabels.transpose(), rightLabels.transpose(), leftMap, rightMap, uf);
     TOC
+    
+    std::cerr << "raw pointer implementation" << std::endl;
     
     TIC
     vigra::mergeLabelsRaw<2, PixelType, LabelType>(left, right, leftLabels, rightLabels, leftMap, rightMap, uf);

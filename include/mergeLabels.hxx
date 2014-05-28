@@ -73,10 +73,11 @@ mergeLabels(MultiArrayView<N, PixelType> const & left,
     vigra_precondition(leftLabels.shape() == left.shape(), "mergeLabels(): Labels/Data shape mismatch");
     vigra_precondition(leftMap.isUnstrided() && rightMap.isUnstrided(), "maps must be unstrided");
 
-    
-    mergeLabels(left.begin(), right.begin(),
-                leftLabels.begin(), rightLabels.begin(),
-                left.shape(),
+    typename MultiArrayView<N, PixelType>::difference_type strideOrder = left.strideOrdering();
+    MultiArrayView<N, PixelType> leftReordered = left.transpose(strideOrder);
+    mergeLabels(leftReordered.begin(), right.transpose(strideOrder).begin(),
+                leftLabels.transpose(strideOrder).begin(), rightLabels.transpose(strideOrder).begin(),
+                leftReordered.shape(),
                 leftMap, rightMap, unionFind,
                 std::equal_to<PixelType>(), N-1);
     
