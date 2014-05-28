@@ -28,7 +28,7 @@ int main()
     USETICTOC
     
     TIC
-    vigra::mergeLabels<2, PixelType, LabelType>(left, right, leftLabels, rightLabels, leftMap, rightMap, uf);
+    vigra::mergeLabels<2, PixelType, LabelType>(left.transpose(), right.transpose(), leftLabels.transpose(), rightLabels.transpose(), leftMap, rightMap, uf);
     TOC
     
     TIC

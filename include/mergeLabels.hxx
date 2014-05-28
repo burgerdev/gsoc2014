@@ -36,7 +36,7 @@ mergeLabels(PixelIterator left,
     {
         for(left.resetDim(n), right.resetDim(n), leftLabels.resetDim(n), rightLabels.resetDim(n);
             i < shape[n];
-            left.incDim(2), right.incDim(2), leftLabels.incDim(2), rightLabels.incDim(2), i++)
+            left.incDim(n), right.incDim(n), leftLabels.incDim(n), rightLabels.incDim(n), i++)
         {
             mergeLabels(left, right, leftLabels, rightLabels, shape, leftMap, rightMap, unionFind, equal, n-1);
         }
@@ -55,6 +55,7 @@ mergeLabels(PixelIterator left,
             }
         }
     }
+    left.resetDim(n), right.resetDim(n), leftLabels.resetDim(n), rightLabels.resetDim(n);
 }
 
 template <int N, class PixelType, class LabelType>

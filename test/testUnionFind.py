@@ -67,7 +67,7 @@ class TestUnionFind(unittest.TestCase):
                 # bottom
                 if i > 0 and x[i-1, j] == x[i, j]:
                     uf.makeUnion(currentLabel, labels[i-1, j])
-                
+
                 labels[i, j] = uf.finalizeLabel(currentLabel)
 
         mapArray(uf, labels)
