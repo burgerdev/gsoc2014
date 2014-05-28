@@ -19,17 +19,19 @@ if __name__ == "__main__":
 
     labelType = np.uint32
 
+    # arrays must be in vigra order for cMergeLabelsRaw to work
     left = np.zeros(shape, dtype=np.uint8).transpose()
     right = np.zeros(shape, dtype=np.uint8).transpose()
 
     left[:] = np.random.randint(255, size=shape).astype(np.uint8)
-    right[:] = np.random.randint(255, size=shape).astype(np.uint8)
+    right[:] = left
+    #right[:] = np.random.randint(255, size=shape).astype(np.uint8)
 
     labels_left = np.zeros(left.shape, dtype=labelType).transpose()
     labels_right = np.zeros(right.shape, dtype=labelType).transpose()
 
-    res = timeit('labelImage(right)', setup='from vigra.analysis import labelImage; from __main__ import right', number=N)
-    print(res)
+    #res = timeit('labelImage(right)', setup='from vigra.analysis import labelImage; from __main__ import right', number=N)
+    #print(res)
     vigra.analysis.labelImage(left, out=labels_left)
     vigra.analysis.labelImage(right, out=labels_right)
 
