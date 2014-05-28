@@ -3,7 +3,7 @@
 #include "vigra/timing.hxx"
 #include "mergeLabels.hxx"
 
-#define N 256
+#define N 4096
 
 int main()
 {

@@ -1,8 +1,6 @@
 // define PY_ARRAY_UNIQUE_SYMBOL (required by the numpy C-API)
 #define PY_ARRAY_UNIQUE_SYMBOL lazycc_PyArray_API
 
-#include <string>
-
 // include the vigranumpy C++ API
 #include <Python.h>
 #include <boost/python.hpp>

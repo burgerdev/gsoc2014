@@ -15,8 +15,6 @@
 
 #include <vigra/timing.hxx>
 
-#include <iostream>
-
 namespace vigra {
 
     
