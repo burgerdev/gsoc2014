@@ -66,9 +66,9 @@ class TestOpLazyCC(unittest.TestCase):
         g = Graph()
         vol = np.asarray(
             [[0, 0, 0, 0, 0, 0, 0, 0, 0],
-             [0, 1, 1, 1, 1, 0, 0, 0, 0],
-             [0, 1, 0, 0, 0, 0, 0, 0, 0],
-             [0, 1, 0, 0, 0, 0, 0, 0, 0],
+             [0, 1, 0, 0, 1, 0, 0, 0, 0],
+             [0, 0, 0, 0, 0, 0, 0, 0, 0],
+             [0, 0, 0, 0, 0, 0, 0, 0, 0],
              [0, 1, 0, 0, 0, 0, 0, 0, 0],
              [0, 0, 0, 0, 0, 0, 0, 0, 0],
              [0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -76,24 +76,46 @@ class TestOpLazyCC(unittest.TestCase):
              [0, 0, 0, 0, 0, 0, 0, 0, 0]], dtype=np.uint8)
         vol = vigra.taggedView(vol, axistags='xy').withAxes(*'xyz')
         chunkShape = (3, 3, 1)
-        
+
         opCount = OpExecuteCounter(graph=g)
         opCount.Input.setValue(vol)
-        
+
         opCache = OpCompressedCache(graph=g)
         opCache.Input.connect(opCount.Output)
         opCache.BlockShape.setValue(chunkShape)
-        
+
         op = OpLabelVolume(graph=g)
         op.Input.connect(opCache.Output)
         op.ChunkShape.setValue(chunkShape)
-        
+
         out = op.Output[:3, :3].wait()
-        n = 6
+        n = 3
         assert opCount.numCalls <= n,\
             "Executed {} times (allowed: {})".format(opCount.numCalls,
                                                      n)
-        
+
+    def testContiguousLabels(self):
+        g = Graph()
+        vol = np.asarray(
+            [[0, 0, 0, 0, 0, 0, 0, 0, 0],
+             [0, 0, 1, 1, 1, 0, 0, 0, 0],
+             [0, 1, 0, 1, 0, 0, 0, 0, 0],
+             [0, 1, 0, 1, 0, 0, 0, 0, 0],
+             [0, 1, 1, 1, 0, 0, 0, 0, 0],
+             [0, 0, 0, 0, 0, 0, 0, 0, 0],
+             [0, 0, 0, 0, 0, 0, 0, 0, 0],
+             [0, 0, 0, 0, 0, 0, 0, 1, 0],
+             [0, 0, 0, 0, 0, 0, 0, 0, 0]], dtype=np.uint8)
+        vol = vigra.taggedView(vol, axistags='xy').withAxes(*'xyz')
+        chunkShape = (3, 3, 1)
+
+        op = OpLabelVolume(graph=g)
+        op.Input.setValue(vol)
+        op.ChunkShape.setValue(chunkShape)
+
+        out1 = op.Output[:3, :3].wait()
+        out2 = op.Output[7:, 7:].wait()
+        assert max(out1.max(), out2.max()) == 2
 
     def testConsistency(self):
         vol = np.zeros((1000, 100, 10))
@@ -125,10 +147,10 @@ class TestOpLazyCC(unittest.TestCase):
         req2 = op.Output[950:, 90:, :]
         req1.submit()
         req2.submit()
-        
+
         out1 = req1.wait()
         out2 = req2.wait()
-        
+
         assert np.all(out1 != out2)
 
     def testSetDirty(self):
@@ -154,6 +176,32 @@ class TestOpLazyCC(unittest.TestCase):
         with self.assertRaises(PropagateDirtyCalled):
             op.Input.setDirty(roi)
 
+    def testDirtyPropagation(self):
+        g = Graph()
+        vol = np.asarray(
+            [[0, 0, 0, 0],
+             [0, 0, 1, 1],
+             [0, 1, 0, 1],
+             [0, 1, 0, 1]], dtype=np.uint8)
+        vol = vigra.taggedView(vol, axistags='xy').withAxes(*'xyz')
+
+        chunkShape = (2, 2, 1)
+
+        opCache = OpCompressedCache(graph=g)
+        opCache.Input.setValue(vol)
+        opCache.BlockShape.setValue(chunkShape)
+
+        op = OpLabelVolume(graph=g)
+        op.Input.connect(opCache.Output)
+        op.ChunkShape.setValue(chunkShape)
+
+        out1 = op.Output[:2, :2].wait()
+        assert np.all(out1 == 0)
+
+        opCache.Input[0:1, 0:1, 0:1] = np.asarray([[[1]]], dtype=np.uint8)
+
+        out2 = op.Output[:1, :1].wait()
+        assert np.all(out2 > 0)
 
 
 class OpExecuteCounter(OpArrayPiper):
