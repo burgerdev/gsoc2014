@@ -1,8 +1,6 @@
 // define PY_ARRAY_UNIQUE_SYMBOL (required by the numpy C-API)
 #define PY_ARRAY_UNIQUE_SYMBOL lazycc_PyArray_API
 
-#include <string>
-
 // include the vigranumpy C++ API
 #include <Python.h>
 #include <boost/python.hpp>
@@ -22,13 +20,14 @@
 
 template <class T>
 NPY_TYPES get_typenum();
+npy_uint32 a;
 
 template <>
-NPY_TYPES get_typenum<npy_uint8>() { return NPY_UBYTE;}
+NPY_TYPES get_typenum<npy_uint8>() { return NPY_UINT8;}
 template <>
-NPY_TYPES get_typenum<npy_uint32>() { return NPY_UINT;}
+NPY_TYPES get_typenum<npy_uint32>() { return NPY_UINT32;}
 template <>
-NPY_TYPES get_typenum<npy_uint64>() { return NPY_ULONGLONG;}
+NPY_TYPES get_typenum<npy_uint64>() { return NPY_UINT64;}
 
 
 template <class T>
@@ -112,21 +111,53 @@ inline void pythonMergeLabels3d(NumpyArray<3, Singleband<PixelType> > left,
 
 VIGRA_PYTHON_MULTITYPE_FUNCTOR(pyMergeLabels3d, pythonMergeLabels3d)
 
+
 template <class PixelType>
-inline void pythonMergeLabels3dSimple(
-                 NumpyArray<3, Singleband<PixelType> > left,
-                 NumpyArray<3, Singleband<PixelType> > right,
-                 NumpyArray<3, Singleband<npy_uint32> > leftLabels,
-                 NumpyArray<3, Singleband<npy_uint32> > rightLabels,
+inline void pythonMergeLabels2d(NumpyArray<2, Singleband<PixelType> > left,
+                 NumpyArray<2, Singleband<PixelType> > right,
+                 NumpyArray<2, Singleband<npy_uint32> > leftLabels,
+                 NumpyArray<2, Singleband<npy_uint32> > rightLabels,
                  NumpyArray<1, Singleband<npy_uint32> > leftMap,
                  NumpyArray<1, Singleband<npy_uint32> > rightMap,
                  detail::UnionFindArray<npy_uint32> & unionFind) {
     
     //PyAllowThreads _pythread;
-    mergeLabelsSimple<3, PixelType, npy_uint32>(left, right, leftLabels, rightLabels, leftMap, rightMap, unionFind);
+    mergeLabels<2, PixelType, npy_uint32>(left, right, leftLabels, rightLabels, leftMap, rightMap, unionFind);
 }
 
-VIGRA_PYTHON_MULTITYPE_FUNCTOR(pyMergeLabels3dSimple, pythonMergeLabels3dSimple)
+VIGRA_PYTHON_MULTITYPE_FUNCTOR(pyMergeLabels2d, pythonMergeLabels2d)
+
+template <class PixelType>
+inline void pythonMergeLabels1d(NumpyArray<1, Singleband<PixelType> > left,
+                 NumpyArray<1, Singleband<PixelType> > right,
+                 NumpyArray<1, Singleband<npy_uint32> > leftLabels,
+                 NumpyArray<1, Singleband<npy_uint32> > rightLabels,
+                 NumpyArray<1, Singleband<npy_uint32> > leftMap,
+                 NumpyArray<1, Singleband<npy_uint32> > rightMap,
+                 detail::UnionFindArray<npy_uint32> & unionFind) {
+    
+    //PyAllowThreads _pythread;
+    mergeLabels<1, PixelType, npy_uint32>(left, right, leftLabels, rightLabels, leftMap, rightMap, unionFind);
+}
+
+VIGRA_PYTHON_MULTITYPE_FUNCTOR(pyMergeLabels1d, pythonMergeLabels1d)
+
+
+template <class PixelType>
+inline void pythonMergeLabelsRaw2d(NumpyArray<2, Singleband<PixelType> > left,
+                                NumpyArray<2, Singleband<PixelType> > right,
+                                NumpyArray<2, Singleband<npy_uint32> > leftLabels,
+                                NumpyArray<2, Singleband<npy_uint32> > rightLabels,
+                                NumpyArray<1, Singleband<npy_uint32> > leftMap,
+                                NumpyArray<1, Singleband<npy_uint32> > rightMap,
+                                detail::UnionFindArray<npy_uint32> & unionFind) {
+    
+    //PyAllowThreads _pythread;
+    mergeLabelsRaw<2, PixelType, npy_uint32>(left, right, leftLabels, rightLabels, leftMap, rightMap, unionFind);
+}
+
+VIGRA_PYTHON_MULTITYPE_FUNCTOR(pyMergeLabelsRaw2d, pythonMergeLabelsRaw2d)
+
 
 } // namespace vigra
 
@@ -144,15 +175,40 @@ void exportMergeLabels() {
              ),
              "Bla\n");
     
-    multidef("mergeLabelsSimple", 
-             pyMergeLabels3dSimple<npy_uint8, npy_uint32, npy_uint64, float>(),
+    
+    multidef("mergeLabels", 
+             pyMergeLabels2d<npy_uint8, npy_uint32, npy_uint64, float>(),
              (
-                 arg("left_labels"), arg("right_labels"),
+                 arg("left_image"), arg("right_image"),
+              arg("left_labels"), arg("right_labels"),
               arg("left_mapping"), arg("right_mapping"),
               arg("UnionFind")
              ),
              "Bla\n");
     
+    
+    multidef("mergeLabels", 
+             pyMergeLabels1d<npy_uint8, npy_uint32, npy_uint64, float>(),
+             (
+                 arg("left_image"), arg("right_image"),
+              arg("left_labels"), arg("right_labels"),
+              arg("left_mapping"), arg("right_mapping"),
+              arg("UnionFind")
+             ),
+             "Bla\n");
+    
+    
+    multidef("mergeLabelsRaw", 
+             pyMergeLabelsRaw2d<npy_uint8, npy_uint32, npy_uint64, float>(),
+             (
+                 arg("left_image"), arg("right_image"),
+              arg("left_labels"), arg("right_labels"),
+              arg("left_mapping"), arg("right_mapping"),
+              arg("UnionFind")
+             ),
+             "Bla\n");
+    
+   
     /*
      *   multidef("mergeLabels", pyMergeLabels2d<npy_uint8, npy_uint32, npy_uint64, float>(),
      *       (arg("left_image"),

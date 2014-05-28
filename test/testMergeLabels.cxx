@@ -37,6 +37,7 @@
  #include <iostream>
  #include <functional>
  #include <cmath>
+#include <boost/concept_check.hpp>
  #include "vigra/unittest.hxx"
  
 #include "vigra/multi_array.hxx"
@@ -51,17 +52,23 @@ struct MergeLabelTest
     typedef unsigned int LabelType;
     
     typedef vigra::MultiArray<3,PixelType> Volume_t;
-    typedef vigra::MultiArray<3,LabelType> Label_t;
+    typedef vigra::MultiArray<2,PixelType> Image_t;
+    typedef vigra::MultiArray<3,LabelType> VLabel_t;
+    typedef vigra::MultiArray<2,LabelType> ILabel_t;
     typedef vigra::MultiArray<1,LabelType> Map_t;
     
     Volume_t left, right;
-    Label_t leftLabels, rightLabels;
+    Image_t left2, right2;
+    VLabel_t leftLabels, rightLabels;
+    ILabel_t leftLabels2, rightLabels2;
     Map_t leftMap, rightMap;
     
-    MergeLabelTest()
-    : left(Volume_t::difference_type(4,1,1)), right(Volume_t::difference_type(4,1,1)),
-    leftLabels(Label_t::difference_type(4,1,1)), rightLabels(Label_t::difference_type(4,1,1)),
-    leftMap(Map_t::difference_type(4)), rightMap(Map_t::difference_type(4))
+    MergeLabelTest() :
+    left(Volume_t::difference_type(4,1,1)), right(Volume_t::difference_type(4,1,1)),
+    leftLabels(VLabel_t::difference_type(4,1,1)), rightLabels(VLabel_t::difference_type(4,1,1)),
+    leftMap(Map_t::difference_type(4)), rightMap(Map_t::difference_type(4)),
+    left2(Image_t::difference_type(4,1)), right2(Image_t::difference_type(4,1)),
+    leftLabels2(ILabel_t::difference_type(4,1)), rightLabels2(ILabel_t::difference_type(4,1))
     {
         static const PixelType leftData[] = {0, 0, 1, 3};
         static const PixelType rightData[] = {0, 0, 2, 3};
@@ -71,25 +78,33 @@ struct MergeLabelTest
         static const LabelType rightMapData[] = {0, 5, 6, 7};
 
         const PixelType * p = leftData;
-        for(Volume_t::iterator i = left.begin(); i != left.end(); ++i, ++p)
+        Image_t::iterator j = left2.begin();
+        for(Volume_t::iterator i = left.begin(); i != left.end(); ++i, ++p, ++j)
         {
             *i=*p;
+            *j=*p;
         }
         p = rightData;
-        for(Volume_t::iterator i = right.begin(); i != right.end(); ++i, ++p)
+        j = right2.begin();
+        for(Volume_t::iterator i = right.begin(); i != right.end(); ++i, ++p, j++)
         {
             *i=*p;
+            *j=*p;
         }
         
         const LabelType * q = leftLabelData;
-        for(Label_t::iterator i = leftLabels.begin(); i != leftLabels.end(); ++i, ++q)
+        ILabel_t::iterator k = leftLabels2.begin();
+        for(VLabel_t::iterator i = leftLabels.begin(); i != leftLabels.end(); ++i, ++q, k++)
         {
             *i=*q;
+            *k=*q;
         }
         q = rightLabelData;
-        for(Label_t::iterator i = rightLabels.begin(); i != rightLabels.end(); ++i, ++q)
+        k = rightLabels2.begin();
+        for(VLabel_t::iterator i = rightLabels.begin(); i != rightLabels.end(); ++i, ++q, k++)
         {
             *i=*q;
+            *k=*q;
         }
         
         const LabelType * r = leftMapData;
@@ -105,18 +120,49 @@ struct MergeLabelTest
     
     }
     
-    void mergeLabelTest()
+    void mergeLabelTest3d()
     {
         vigra::detail::UnionFindArray<LabelType> uf(rightMap[3]+1);
         vigra::mergeLabels<3, PixelType, LabelType>(left, right, leftLabels, rightLabels, leftMap, rightMap, uf);
         for (LabelType i=0; i<8; i++)
-            std::cerr << uf.find(i) << " " << std::endl;
+            std::cerr << uf.find(i) << " ";
+        std::cerr << std::endl << std::endl;
         should(uf.find(5) == uf.find(1));
         should(uf.find(7) == uf.find(3));
         should(uf.find(6) != uf.find(2));
     }
     
+    void mergeLabelTest2d()
+    {
+//         std::cerr << "=================" << std::endl;
+//         printMat(left2);
+//         printMat(right2);
+//         printMat(leftLabels2);
+//         printMat(rightLabels2);
+//         std::cerr << "=================" << std::endl;
+        vigra::detail::UnionFindArray<LabelType> uf(rightMap[3]+1);
+        vigra::mergeLabels<2, PixelType, LabelType>(left2, right2, leftLabels2, rightLabels2, leftMap, rightMap, uf);
+        for (LabelType i=0; i<8; i++)
+            std::cerr << uf.find(i) << " ";
+        std::cerr << std::endl << std::endl;
+        should(uf.find(5) == uf.find(1));
+        should(uf.find(7) == uf.find(3));
+        should(uf.find(6) != uf.find(2));
+    }
     
+    template <class Array>
+    void printMat(Array a)
+    {
+        typedef typename Array::iterator Iterator;
+        Iterator it = a.begin();
+        Iterator end = a.end();
+        std::cerr << "[";
+        for (; it<end; ++it)
+        {
+            std::cerr << (int) *it << " ";
+        }
+        std::cerr << "]" << std::endl;
+    }
 };
 
 
@@ -127,7 +173,8 @@ struct MergeLabelTestSuite
     MergeLabelTestSuite()
     : vigra::test_suite("MergeLabelTestSuite")
     {
-        add( testCase( &MergeLabelTest::mergeLabelTest));
+        add( testCase( &MergeLabelTest::mergeLabelTest2d));
+        add( testCase( &MergeLabelTest::mergeLabelTest3d));
     }
 };
 

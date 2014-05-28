@@ -76,5 +76,6 @@ class TestUnionFind(unittest.TestCase):
         assert labels[-1, -1] != labels[0, 0]
         assert labels[-1, 0] == labels[0, 0]
 
-    #def testSafety(self):
-        #uf = UnionFindArray(np.uint8(255))
+    @unittest.skip("Is not safe in vigra 1.10")
+    def testSafety(self):
+        uf = UnionFindArray(np.uint8(255))

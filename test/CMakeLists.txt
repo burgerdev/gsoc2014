@@ -20,4 +20,4 @@ target_link_libraries(test_merge_labels
 #    ${RT_LIBRARY}
 )
 
-add_test("testmergeLabels" testMergeLabels)
+add_test("test_merge_labels" test_merge_labels)

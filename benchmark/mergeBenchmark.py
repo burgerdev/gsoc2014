@@ -4,7 +4,7 @@
 
 from lazycc._merge import mergeLabels as pyMergeLabels
 from lazycc._lazycc_cxx import mergeLabels as cMergeLabels
-from lazycc._lazycc_cxx import mergeLabelsSimple as cMergeLabelsSimple
+from lazycc._lazycc_cxx import mergeLabelsRaw as cMergeLabelsRaw
 from lazycc import UnionFindArray
 
 from timeit import timeit, repeat
@@ -14,19 +14,24 @@ import vigra
 
 
 if __name__ == "__main__":
+    N = 200
+    shape = (64, 64)
 
     labelType = np.uint32
 
-    left = np.random.randint(255, size=(64, 1, 64)).astype(np.uint8)
-    right = np.random.randint(255, size=(64, 1, 64)).astype(np.uint8)
+    left = np.zeros(shape, dtype=np.uint8).transpose()
+    right = np.zeros(shape, dtype=np.uint8).transpose()
 
-    labels_left = np.zeros(left.shape, dtype=labelType)
-    labels_right = np.zeros(right.shape, dtype=labelType)
+    left[:] = np.random.randint(255, size=shape).astype(np.uint8)
+    right[:] = np.random.randint(255, size=shape).astype(np.uint8)
 
-    res = timeit('labelVolume(right)', setup='from vigra.analysis import labelVolume;from __main__ import right', number=50)
+    labels_left = np.zeros(left.shape, dtype=labelType).transpose()
+    labels_right = np.zeros(right.shape, dtype=labelType).transpose()
+
+    res = timeit('labelImage(right)', setup='from vigra.analysis import labelImage; from __main__ import right', number=N)
     print(res)
-    vigra.analysis.labelVolume(left, out=labels_left)
-    vigra.analysis.labelVolume(right, out=labels_right)
+    vigra.analysis.labelImage(left, out=labels_left)
+    vigra.analysis.labelImage(right, out=labels_right)
 
     max_left = np.max(labels_left)
     max_right = np.max(labels_right)
@@ -42,9 +47,9 @@ if __name__ == "__main__":
     cmd = "{}(left, right, labels_left, labels_right, "\
           "map_left, map_right, uf)"
 
-    for impl in ["pyMergeLabels", "cMergeLabels", "cMergeLabelsSimple"]:
+    for impl in ["pyMergeLabels", "cMergeLabels", "cMergeLabelsRaw"]:
         print("{} for shape {}:".format(cmd.format(impl), left.shape))
         res = repeat(cmd.format(impl), setup=setup.format(impl),
-                     repeat=1, number=50)
+                     repeat=3, number=N)
         print("    " + " ".join(["{:.3f}s".format(r) for r in res]))
 
