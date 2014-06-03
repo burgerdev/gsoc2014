@@ -8,6 +8,7 @@ import logging
 
 from collections import defaultdict
 from functools import partial, wraps
+from itertools import count as InfiniteLabelIterator
 
 from lazyflow.operator import Operator, InputSlot, OutputSlot
 from lazyflow.rtype import SubRegion
@@ -48,6 +49,10 @@ class OpLazyCC(Operator):
         self.Output.meta.dtype = _LABEL_TYPE
         assert self.Input.meta.dtype in [np.uint8, np.uint32, np.uint64],\
             "Cannot label data type {}".format(self.Input.meta.dtype)
+
+        # keep track of assigned global labels
+        self._labelIterator = InfiniteLabelIterator(1)
+        self._globalLabels = dict()
 
         # chunk array shape calculation
         shape = self.Input.meta.shape
@@ -254,11 +259,22 @@ class OpLazyCC(Operator):
             newroi.stop = np.minimum(newroi.stop, roi.stop)
             newroi.start = np.maximum(newroi.start, roi.start)
             labels = self._getLabelsForChunk(idx, mapping=True)
+            self._toGlobal(labels)
             chunk = self._cache[newroi.toSlice()]
             newroi.start -= roi.start
             newroi.stop -= roi.start
             s = newroi.toSlice()
             result[s] = labels[chunk]
+
+    def _toGlobal(self, labels):
+        for l in np.unique(labels):
+            if l == 0:
+                continue
+            if l not in self._globalLabels:
+                with self._lock:
+                    nextLabel = self._labelIterator.next()
+                    self._globalLabels[l] = nextLabel
+            labels[labels == l] = self._globalLabels[l]
 
     # create roi object from chunk index
     def _chunkIndexToRoi(self, index):
@@ -277,8 +293,8 @@ class OpLazyCC(Operator):
         stop = np.asarray(roi.stop)
         start_cs = start / cs
         stop_cs = stop / cs
-        stop_mod = stop % cs
-        stop_cs += np.where(stop_mod, 1, 0)
+        # add one if division was not even
+        stop_cs += np.where(stop % cs, 1, 0)
         chunks = []
         for x in range(start_cs[0], stop_cs[0]):
             for y in range(start_cs[1], stop_cs[1]):

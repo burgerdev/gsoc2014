@@ -115,6 +115,7 @@ class TestOpLazyCC(unittest.TestCase):
 
         out1 = op.Output[:3, :3].wait()
         out2 = op.Output[7:, 7:].wait()
+        print(out1.max(), out2.max())
         assert max(out1.max(), out2.max()) == 2
 
     def testConsistency(self):
