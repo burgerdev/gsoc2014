@@ -112,6 +112,8 @@ class OpLazyCC(Operator):
         # we would have to label each chunk that was set dirty and check
         # for changed labels. Therefore, we would have to check if the
         # dirty region is 'small enough', etc etc.
+        # HACK
+        self.setupOutputs()
         self.Output.setDirty(slice(None))
 
     # grow the requested region such that all labels inside that region are
