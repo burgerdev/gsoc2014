@@ -72,19 +72,18 @@ void exportConverters() {
 
 template <class T>
 void exportVigraUnionFindArrayTyped(const char* name) {
-    typedef vigra::detail::UnionFindArray<T> UnionFind;
+    typedef vigra::UnionFindArray<T> UnionFind;
     using namespace boost::python;
     
     exportConverters<T>();
     
     class_<UnionFind>(name, init<T>())
-        .def("nextFreeLabel", &UnionFind::nextFreeLabel)
-        .def("find", &UnionFind::find)
+        .def("nextFreeIndex", &UnionFind::nextFreeIndex)
+        .def("findIndex", &UnionFind::findIndex)
+        .def("findLabel", &UnionFind::findLabel)
         .def("makeUnion", &UnionFind::makeUnion)
-        .def("finalizeLabel", &UnionFind::finalizeLabel)
-        .def("makeNewLabel", &UnionFind::makeNewLabel)
+        .def("makeNewIndex", &UnionFind::makeNewIndex)
         .def("makeContiguous", &UnionFind::makeContiguous)
-        .def("__getitem__", &UnionFind::operator[])
     ;
 }
 
@@ -103,7 +102,7 @@ inline void pythonMergeLabels3d(NumpyArray<3, Singleband<PixelType> > left,
                  NumpyArray<3, Singleband<npy_uint32> > rightLabels,
                  NumpyArray<1, Singleband<npy_uint32> > leftMap,
                  NumpyArray<1, Singleband<npy_uint32> > rightMap,
-                 detail::UnionFindArray<npy_uint32> & unionFind) {
+                 UnionFindArray<npy_uint32> & unionFind) {
     
     //PyAllowThreads _pythread;
     mergeLabels<3, PixelType, npy_uint32>(left, right, leftLabels, rightLabels, leftMap, rightMap, unionFind);
@@ -119,7 +118,7 @@ inline void pythonMergeLabels2d(NumpyArray<2, Singleband<PixelType> > left,
                  NumpyArray<2, Singleband<npy_uint32> > rightLabels,
                  NumpyArray<1, Singleband<npy_uint32> > leftMap,
                  NumpyArray<1, Singleband<npy_uint32> > rightMap,
-                 detail::UnionFindArray<npy_uint32> & unionFind) {
+                 UnionFindArray<npy_uint32> & unionFind) {
     
     //PyAllowThreads _pythread;
     mergeLabels<2, PixelType, npy_uint32>(left, right, leftLabels, rightLabels, leftMap, rightMap, unionFind);
@@ -134,7 +133,7 @@ inline void pythonMergeLabels1d(NumpyArray<1, Singleband<PixelType> > left,
                  NumpyArray<1, Singleband<npy_uint32> > rightLabels,
                  NumpyArray<1, Singleband<npy_uint32> > leftMap,
                  NumpyArray<1, Singleband<npy_uint32> > rightMap,
-                 detail::UnionFindArray<npy_uint32> & unionFind) {
+                 UnionFindArray<npy_uint32> & unionFind) {
     
     //PyAllowThreads _pythread;
     mergeLabels<1, PixelType, npy_uint32>(left, right, leftLabels, rightLabels, leftMap, rightMap, unionFind);
@@ -150,7 +149,7 @@ inline void pythonMergeLabelsRaw2d(NumpyArray<2, Singleband<PixelType> > left,
                                 NumpyArray<2, Singleband<npy_uint32> > rightLabels,
                                 NumpyArray<1, Singleband<npy_uint32> > leftMap,
                                 NumpyArray<1, Singleband<npy_uint32> > rightMap,
-                                detail::UnionFindArray<npy_uint32> & unionFind) {
+                                UnionFindArray<npy_uint32> & unionFind) {
     
     //PyAllowThreads _pythread;
     mergeLabelsRaw<2, PixelType, npy_uint32>(left, right, leftLabels, rightLabels, leftMap, rightMap, unionFind);

@@ -122,15 +122,15 @@ struct MergeLabelTest
     
     void mergeLabelTest3d()
     {
-        vigra::detail::UnionFindArray<LabelType> uf(rightMap[3]+1);
+        vigra::UnionFindArray<LabelType> uf(rightMap[3]+1);
         // we need to specify the exact template because MultiArray cannot be cast to MultiArrayView
         vigra::mergeLabels<3, PixelType, LabelType>(left, right, leftLabels, rightLabels, leftMap, rightMap, uf);
 //         for (LabelType i=0; i<8; i++)
-//             std::cerr << uf.find(i) << " ";
+//             std::cerr << uf.findLabel(i) << " ";
 //         std::cerr << std::endl << std::endl;
-        should(uf.find(5) == uf.find(1));
-        should(uf.find(7) == uf.find(3));
-        should(uf.find(6) != uf.find(2));
+        should(uf.findLabel(5) == uf.findLabel(1));
+        should(uf.findLabel(7) == uf.findLabel(3));
+        should(uf.findLabel(6) != uf.findLabel(2));
     }
     
     void mergeLabelTest2d()
@@ -141,14 +141,14 @@ struct MergeLabelTest
 //         printMat(leftLabels2);
 //         printMat(rightLabels2);
 //         std::cerr << "=================" << std::endl;
-        vigra::detail::UnionFindArray<LabelType> uf(rightMap[3]+1);
+        vigra::UnionFindArray<LabelType> uf(rightMap[3]+1);
         vigra::mergeLabels<2, PixelType, LabelType>(left2, right2, leftLabels2, rightLabels2, leftMap, rightMap, uf);
 //         for (LabelType i=0; i<8; i++)
-//             std::cerr << uf.find(i) << " ";
+//             std::cerr << uf.findLabel(i) << " ";
 //         std::cerr << std::endl << std::endl;
-        should(uf.find(5) == uf.find(1));
-        should(uf.find(7) == uf.find(3));
-        should(uf.find(6) != uf.find(2));
+        should(uf.findLabel(5) == uf.findLabel(1));
+        should(uf.findLabel(7) == uf.findLabel(3));
+        should(uf.findLabel(6) != uf.findLabel(2));
     }
     
     template <class Array>
@@ -233,18 +233,18 @@ struct MergeLabelTestMore
     
     void mergeLabelTest()
     {
-        vigra::detail::UnionFindArray<LabelType> uf(rightMap[4]+1);
+        vigra::UnionFindArray<LabelType> uf(rightMap[4]+1);
         // we need to specify the exact template because MultiArray cannot be cast to MultiArrayView
         vigra::mergeLabels<2, PixelType, LabelType>(left, right, leftLabels, rightLabels, leftMap, rightMap, uf);
 //         for (LabelType i=0; i<rightMap[4]+1; i++)
-//             std::cerr << uf.find(i) << " ";
+//             std::cerr << uf.findLabel(i) << " ";
 //         std::cerr << std::endl << std::endl;
         static const LabelType a[] = {0, 1, 2, 3, 4, 5, 6, 7, 8};
         static const LabelType b[] = {0, 6, 2, 5, 4, 5, 6, 7, 8};
         
         for (int i=0; i < 9; i++)
         {
-            should(uf.find(a[i]) == uf.find(b[i]));
+            should(uf.findLabel(a[i]) == uf.findLabel(b[i]));
         }
     }
     

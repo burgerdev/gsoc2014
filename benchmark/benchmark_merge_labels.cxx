@@ -14,7 +14,7 @@ int main()
     typedef vigra::MultiArray<2,LabelType> Label;
     typedef vigra::MultiArray<1,LabelType> Map;
 
-    vigra::detail::UnionFindArray<LabelType> uf((LabelType)1);
+    vigra::UnionFindArray<LabelType> uf((LabelType)1);
     
     Volume left(Volume::difference_type(N,N), (PixelType)0);
     Volume right(Volume::difference_type(N,N), (PixelType)0);

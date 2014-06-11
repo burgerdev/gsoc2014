@@ -27,7 +27,7 @@ mergeLabels(PixelIterator left,
             const Shape & shape,
             MultiArrayView<1, LabelType> const & leftMap,
             MultiArrayView<1, LabelType> const & rightMap,
-            detail::UnionFindArray<LabelType> & unionFind,
+            UnionFindArray<LabelType> & unionFind,
             EqualityFunctor equal, int n
            )
 {
@@ -66,7 +66,7 @@ mergeLabels(MultiArrayView<N, PixelType> const & left,
             MultiArrayView<N, LabelType> const & rightLabels,
             MultiArrayView<1, LabelType> const & leftMap,
             MultiArrayView<1, LabelType> const & rightMap,
-            detail::UnionFindArray<LabelType> & unionFind)
+            UnionFindArray<LabelType> & unionFind)
 {
     vigra_precondition(left.shape() == right.shape(), "mergeLabels(): Data arrays shape mismatch");
     vigra_precondition(leftLabels.shape() == rightLabels.shape(), "mergeLabels(): Label arrays shape mismatch");
@@ -92,7 +92,7 @@ mergeLabelsRaw(MultiArrayView<N, PixelType> const & left,
             MultiArrayView<N, LabelType> const & rightLabels,
             MultiArrayView<1, LabelType> const & leftMap,
             MultiArrayView<1, LabelType> const & rightMap,
-            detail::UnionFindArray<LabelType> & unionFind)
+            UnionFindArray<LabelType> & unionFind)
 {
     vigra_precondition(left.shape() == right.shape(), "mergeLabels(): Data arrays shape mismatch");
     vigra_precondition(leftLabels.shape() == rightLabels.shape(), "mergeLabels(): Label arrays shape mismatch");
