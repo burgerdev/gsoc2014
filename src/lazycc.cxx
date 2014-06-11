@@ -79,6 +79,7 @@ void exportVigraUnionFindArrayTyped(const char* name) {
     
     class_<UnionFind>(name, init<T>())
         .def("nextFreeIndex", &UnionFind::nextFreeIndex)
+        .def("finalizeIndex", &UnionFind::finalizeIndex)
         .def("findIndex", &UnionFind::findIndex)
         .def("findLabel", &UnionFind::findLabel)
         .def("makeUnion", &UnionFind::makeUnion)

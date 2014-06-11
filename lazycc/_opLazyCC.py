@@ -155,11 +155,11 @@ class OpLazyCC(Operator):
         # let the others know that we are finalizing this chunk
         # and compute the updated labels on the way
         with self._lock:
-            finalized = map(self._uf.find, self._finalizedLabels[chunkIndex])
-            labels = map(self._uf.find, labels)
+            finalized = map(self._uf.findLabel, self._finalizedLabels[chunkIndex])
+            labels = map(self._uf.findLabel, labels)
             # now that we have the lock, lets globalize the neighbouring labels
             otherLabels = \
-                map(lambda x: map(self._uf.find, self._getLabelsForChunk(x)),
+                map(lambda x: map(self._uf.findLabel, self._getLabelsForChunk(x)),
                     neighbours)
 
         now_finalized = np.union1d(finalized, labels).astype(_LABEL_TYPE)
@@ -171,7 +171,7 @@ class OpLazyCC(Operator):
             d = np.intersect1d(labels, l)
             # don't go to finalized neighbours
             if self._finalizedLabels[i] is not None:
-                finalized = map(self._uf.find, self._finalizedLabels[i])
+                finalized = map(self._uf.findLabel, self._finalizedLabels[i])
                 d = np.setdiff1d(d, finalized)
             d = d.astype(_LABEL_TYPE)
             if len(d) > 0:
@@ -204,14 +204,14 @@ class OpLazyCC(Operator):
         if numLabels > 0:
             with self._lock:
                 # get 1 label that determines the offset
-                offset = self._uf.makeNewLabel()
+                offset = self._uf.makeNewIndex()
                 # the offset is such that label 1 in the local chunk maps to
                 # 'offset' in the global context
                 self._globalLabelOffset[chunkIndex] = offset - 1
 
                 # get n-1 more labels
                 for i in range(numLabels-1):
-                    self._uf.makeNewLabel()
+                    self._uf.makeNewIndex()
 
     # merge the labels of two adjacent chunks
     @_chunksynchronized
@@ -361,7 +361,7 @@ class OpLazyCC(Operator):
             # 0 always maps to 0!
             idx[0] = 0
 
-            out = np.asarray(map(self._uf.find, idx), dtype=_LABEL_TYPE)
+            out = np.asarray(map(self._uf.findLabel, idx), dtype=_LABEL_TYPE)
             return out
 
     # order a pair of chunk indices lexicographically

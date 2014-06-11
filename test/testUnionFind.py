@@ -11,7 +11,7 @@ from helpers import assertEquivalentLabeling
 
 
 def mapArray(uf, x):
-    n = uf.nextFreeLabel()
+    n = uf.nextFreeIndex()
     T = type(uf)
     if T == UnionFindUInt8:
         dt = np.uint8
@@ -21,7 +21,7 @@ def mapArray(uf, x):
         dt = np.uint64
     s = np.arange(n, dtype=dt)
     for i in range(len(s)):
-        s[i] = uf.find(s[i])
+        s[i] = uf.findLabel(s[i])
     x[:] = s[x]
 
 
@@ -35,11 +35,11 @@ class TestUnionFind(unittest.TestCase):
     def testSimple(self):
         uf = UnionFindArray(np.uint8(3))
         for i in range(4):
-            assert uf[i] == i
-        uf.makeUnion(1,2)
-        assert uf[1] == uf[2]
+            assert uf.findLabel(i) == i
+        uf.makeUnion(1, 2)
+        assert uf.findLabel(1) == uf.findLabel(2)
         for i in range(3):
-            print("{}: {}".format(i, uf[i]))
+            print("{}: {}".format(i, uf.findLabel(i)))
         i = uf.makeContiguous()
 
     def testNumpyInit(self):
@@ -48,7 +48,7 @@ class TestUnionFind(unittest.TestCase):
             x = np.arange(4, dtype=dt)
             uf = UnionFindArray(x[-1])
             uf.makeUnion(x[1], x[3])
-            assert uf[1] == uf[3]
+            assert uf.findLabel(1) == uf.findLabel(3)
 
     def testLabelAlgorithm(self):
         x = self.tinyArray
@@ -59,16 +59,16 @@ class TestUnionFind(unittest.TestCase):
             for j in range(x.shape[1]):
                 if x[i, j] == 0:
                     continue
-                currentLabel = uf.nextFreeLabel()
+                currentIndex = uf.nextFreeIndex()
                 # left
                 if j > 0 and x[i, j-1] == x[i, j]:
-                    uf.makeUnion(currentLabel, labels[i, j-1])
+                    uf.makeUnion(currentIndex, labels[i, j-1])
 
                 # bottom
                 if i > 0 and x[i-1, j] == x[i, j]:
-                    uf.makeUnion(currentLabel, labels[i-1, j])
+                    uf.makeUnion(currentIndex, labels[i-1, j])
 
-                labels[i, j] = uf.finalizeLabel(currentLabel)
+                labels[i, j] = uf.finalizeIndex(currentIndex)
 
         mapArray(uf, labels)
         print(x)
@@ -76,6 +76,5 @@ class TestUnionFind(unittest.TestCase):
         assert labels[-1, -1] != labels[0, 0]
         assert labels[-1, 0] == labels[0, 0]
 
-    @unittest.skip("Is not safe in vigra 1.10")
     def testSafety(self):
-        uf = UnionFindArray(np.uint8(255))
+        uf = UnionFindArray(np.uint8(127))
