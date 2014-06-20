@@ -204,6 +204,93 @@ class TestOpLazyCC(unittest.TestCase):
         out2 = op.Output[:1, :1].wait()
         assert np.all(out2 > 0)
 
+    @unittest.skip("too costly")
+    def testFromDataset(self):
+        shape = (500, 500, 500)
+
+        vol = np.zeros(shape, dtype=np.uint8)
+        vol = vigra.taggedView(vol, axistags='zxy')
+
+        centers = [(45, 15), (45, 350), (360, 50)]
+        extent = (10, 10)
+        shift = (1, 1)
+        zrange = np.arange(0, 20)
+        zsteps = np.arange(5, 455, 50)
+
+        for x, y in centers:
+            for z in zsteps:
+                for t in zrange:
+                    sx = x+t*shift[0]
+                    sy = y+t*shift[1]
+                    vol[zsteps + t, sx-extent[0]:sx+extent[0], sy-extent[0]:sy+extent[0]] = 255
+
+        vol = vol.withAxes(*'xyz')
+
+        # all at once
+        op = OpLabelVolume(graph=Graph())
+        op.Input.setValue(vol)
+        op.ChunkShape.setValue((64, 64, 64))
+        out1 = op.Output[...].wait()
+        out2 = vigra.analysis.labelVolumeWithBackground(vol)
+        assertEquivalentLabeling(out1.view(np.ndarray), out2.view(np.ndarray))
+
+    @unittest.skip("too costly")
+    def testFromDataset2(self):
+        shape = (500, 500, 500)
+
+        vol = np.zeros(shape, dtype=np.uint8)
+        vol = vigra.taggedView(vol, axistags='zxy')
+
+        centers = [(45, 15), (45, 350), (360, 50)]
+        extent = (10, 10)
+        shift = (1, 1)
+        zrange = np.arange(0, 20)
+        zsteps = np.arange(5, 455, 50)
+
+        for x, y in centers:
+            for z in zsteps:
+                for t in zrange:
+                    sx = x+t*shift[0]
+                    sy = y+t*shift[1]
+                    vol[zsteps + t, sx-extent[0]:sx+extent[0], sy-extent[0]:sy+extent[0]] = 255
+
+        vol = vol.withAxes(*'xyz')
+
+        # step by step
+        op = OpLabelVolume(graph=Graph())
+        op.Input.setValue(vol)
+        op.ChunkShape.setValue((64, 64, 64))
+        out1 = np.zeros(op.Output.meta.shape,
+                        dtype=op.Output.meta.dtype)
+        for z in reversed(range(500)):
+            out1[..., z:z+1] = op.Output[..., z:z+1].wait()
+        vigra.writeHDF5(out1, '/tmp/data.h5', 'data')
+        out2 = vigra.analysis.labelVolumeWithBackground(vol)
+        assertEquivalentLabeling(out1.view(np.ndarray), out2.view(np.ndarray))
+
+    def testParallel(self):
+        shape = (100, 100, 100)
+
+        vol = np.ones(shape, dtype=np.uint8)
+        vol = vigra.taggedView(vol, axistags='xyz')
+
+        op = OpLabelVolume(graph=Graph())
+        op.Input.setValue(vol)
+        op.ChunkShape.setValue((50, 50, 1))
+
+        reqs = [op.Output[..., 0],
+                op.Output[..., 99],
+                op.Output[0, ...],
+                op.Output[99, ...],
+                op.Output[:, 0, ...],
+                op.Output[:, 99, ...]]
+
+        [r.submit() for r in reqs]
+
+        out = [r.wait() for r in reqs]
+        for i in range(len(out)-1):
+            assert_array_equal(out[i], out[i+1])
+
 
 class OpExecuteCounter(OpArrayPiper):
 

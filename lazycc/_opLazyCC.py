@@ -64,15 +64,15 @@ class OpLazyCC(Operator):
         self._chunkArrayShape = tuple(map(f, range(3)))
         self._chunkShape = np.asarray(chunkShape, dtype=np.int)
 
-        # keep track of number of labels in chunk (-1 == not labeled yet)
-        self._numLabels = -np.ones(self._chunkArrayShape, dtype=np.int32)
-        locks = [RLock() for i in xrange(self._numLabels.size)]
+        # keep track of number of indices in chunk (-1 == not labeled yet)
+        self._numIndices = -np.ones(self._chunkArrayShape, dtype=np.int32)
+        locks = [RLock() for i in xrange(self._numIndices.size)]
         locks = np.asarray(locks, dtype=np.object)
-        self._chunk_locks = locks.reshape(self._numLabels.shape)
+        self._chunk_locks = locks.reshape(self._numIndices.shape)
 
-        # keep track of the labels that have been finalized
-        self._finalizedLabels = np.empty(self._chunkArrayShape,
-                                         dtype=np.object)
+        # keep track of the indices that have been finalized
+        self._finalizedIndices = np.empty(self._chunkArrayShape,
+                                          dtype=np.object)
 
         # offset (global labels - local labels) per chunk
         self._globalLabelOffset = np.ones(self._chunkArrayShape,
@@ -148,30 +148,31 @@ class OpLazyCC(Operator):
         if labels is None:
             labels = self._getLabelsForChunk(chunkIndex)
 
-        if self._finalizedLabels[chunkIndex] is None:
-            self._finalizedLabels[chunkIndex] = np.zeros((0,),
+        if self._finalizedIndices[chunkIndex] is None:
+            self._finalizedIndices[chunkIndex] = np.zeros((0,),
                                                          dtype=_LABEL_TYPE)
 
         # let the others know that we are finalizing this chunk
         # and compute the updated labels on the way
         with self._lock:
-            finalized = map(self._uf.findLabel, self._finalizedLabels[chunkIndex])
+            finalized = map(self._uf.findLabel, self._finalizedIndices[chunkIndex])
             labels = map(self._uf.findLabel, labels)
             # now that we have the lock, lets globalize the neighbouring labels
             otherLabels = \
-                map(lambda x: map(self._uf.findLabel, self._getLabelsForChunk(x)),
+                map(lambda x: map(self._uf.findIndex,
+                                  self._getLabelsForChunk(x)),
                     neighbours)
 
         now_finalized = np.union1d(finalized, labels).astype(_LABEL_TYPE)
-        self._finalizedLabels[chunkIndex] = now_finalized
+        self._finalizedIndices[chunkIndex] = now_finalized
 
         labels = np.setdiff1d(labels, finalized)
 
         for i, l in zip(neighbours, otherLabels):
             d = np.intersect1d(labels, l)
             # don't go to finalized neighbours
-            if self._finalizedLabels[i] is not None:
-                finalized = map(self._uf.findLabel, self._finalizedLabels[i])
+            if self._finalizedIndices[i] is not None:
+                finalized = map(self._uf.findLabel, self._finalizedIndices[i])
                 d = np.setdiff1d(d, finalized)
             d = d.astype(_LABEL_TYPE)
             if len(d) > 0:
@@ -182,7 +183,7 @@ class OpLazyCC(Operator):
     # label a chunk and store information
     @_chunksynchronized
     def _label(self, chunkIndex):
-        if self._numLabels[chunkIndex] >= 0:
+        if self._numIndices[chunkIndex] >= 0:
             # this chunk is already labeled
             return
 
@@ -200,7 +201,7 @@ class OpLazyCC(Operator):
 
         # update the labeling information
         numLabels = labeled.max()  # we ignore 0 here
-        self._numLabels[chunkIndex] = numLabels
+        self._numIndices[chunkIndex] = numLabels
         if numLabels > 0:
             with self._lock:
                 # get 1 label that determines the offset
@@ -272,8 +273,10 @@ class OpLazyCC(Operator):
         for l in np.unique(labels):
             if l == 0:
                 continue
-            if l not in self._globalLabels:
-                with self._lock:
+
+            # adding a global label is critical
+            with self._lock:
+                if l not in self._globalLabels:
                     nextLabel = self._labelIterator.next()
                     self._globalLabels[l] = nextLabel
             labels[labels == l] = self._globalLabels[l]
@@ -345,7 +348,7 @@ class OpLazyCC(Operator):
     # False, a mapping of local labels to global labels otherwise
     def _getLabelsForChunk(self, chunkIndex, mapping=False):
         offset = self._globalLabelOffset[chunkIndex]
-        numLabels = self._numLabels[chunkIndex]
+        numLabels = self._numIndices[chunkIndex]
         labels = np.arange(1, numLabels+1, dtype=_LABEL_TYPE) + offset
         if not mapping:
             return labels
@@ -361,7 +364,7 @@ class OpLazyCC(Operator):
             # 0 always maps to 0!
             idx[0] = 0
 
-            out = np.asarray(map(self._uf.findLabel, idx), dtype=_LABEL_TYPE)
+            out = np.asarray(map(self._uf.findIndex, idx), dtype=_LABEL_TYPE)
             return out
 
     # order a pair of chunk indices lexicographically

@@ -78,3 +78,23 @@ class TestUnionFind(unittest.TestCase):
 
     def testSafety(self):
         uf = UnionFindArray(np.uint8(127))
+
+    def testNewUF(self):
+        a = np.arange(10, dtype=np.uint8)
+        uf = UnionFindArray(a[-1])
+
+        def pp(i):
+            print("{} -> (Index={}, Label={})".format(
+                i, uf.findIndex(i), uf.findLabel(i)))
+
+        uf.makeUnion(a[6], a[7])
+        pp(7)
+        uf.makeUnion(a[3], a[4])
+        pp(7)
+        uf.makeContiguous()
+        pp(7)
+        uf.makeUnion(a[1], a[2])
+        pp(7)
+        uf.makeContiguous()
+        pp(7)
+
