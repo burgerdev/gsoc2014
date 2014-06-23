@@ -40,6 +40,9 @@ class OpLazyCC(Operator):
     ChunkShape = InputSlot()
     Output = OutputSlot()
 
+    # debug outputs
+    _NonGlobalOutput = OutputSlot()
+
     def __init__(self, *args, **kwargs):
         super(OpLazyCC, self).__init__(*args, **kwargs)
         self._lock = RLock()
@@ -47,6 +50,7 @@ class OpLazyCC(Operator):
     def setupOutputs(self):
         self.Output.meta.assignFrom(self.Input.meta)
         self.Output.meta.dtype = _LABEL_TYPE
+        self._NonGlobalOutput.meta.assignFrom(self.Output.meta)
         assert self.Input.meta.dtype in [np.uint8, np.uint32, np.uint64],\
             "Cannot label data type {}".format(self.Input.meta.dtype)
 
@@ -88,24 +92,18 @@ class OpLazyCC(Operator):
         self._cache = vigra.ChunkedArrayCompressed(shape, dtype=_LABEL_TYPE)
 
     def execute(self, slot, subindex, roi, result):
-        assert slot is self.Output, "Invalid request to execute"
+        if slot is self.Output:
+            chunks = self._roiToChunkIndex(roi)
+            for chunk in chunks:
+                self._finalize(chunk)
 
-        # this has not proven to be any better
-        '''
-        pool = RequestPool()
+            self._mapArray(roi, result)
+        elif slot is self._NonGlobalOutput:
+            chunks = self._roiToChunkIndex(roi)
+            for chunk in chunks:
+                self._finalize(chunk)
 
-        chunks = self._roiToChunkIndex(roi)
-        for i in np.random.permutation(np.arange(len(chunks), dtype=np.int)):
-            pool.add(Request(partial(self._finalize, chunks[i])))
-
-        pool.wait()
-        pool.clean()
-        '''
-        chunks = self._roiToChunkIndex(roi)
-        for chunk in chunks:
-            self._finalize(chunk)
-
-        self._mapArray(roi, result)
+            self._mapArray(roi, result, global_labels=False)
 
     def propagateDirty(self, slot, subindex, roi):
         # TODO: this is already correct, but may be over-zealous
@@ -253,7 +251,7 @@ class OpLazyCC(Operator):
     # get a rectangular region with final global labels
     # @param roi region of interest
     # @param result array of shape roi.stop - roi.start, will be filled
-    def _mapArray(self, roi, result):
+    def _mapArray(self, roi, result, global_labels=True):
         # TODO perhaps with pixeloperator?
         assert np.all(roi.stop - roi.start == result.shape)
         indices = self._roiToChunkIndex(roi)
@@ -262,7 +260,8 @@ class OpLazyCC(Operator):
             newroi.stop = np.minimum(newroi.stop, roi.stop)
             newroi.start = np.maximum(newroi.start, roi.start)
             labels = self._getLabelsForChunk(idx, mapping=True)
-            self._toGlobal(labels)
+            if global_labels:
+                self._toGlobal(labels)
             chunk = self._cache[newroi.toSlice()]
             newroi.start -= roi.start
             newroi.stop -= roi.start

@@ -279,17 +279,28 @@ class TestOpLazyCC(unittest.TestCase):
         op.ChunkShape.setValue((50, 50, 1))
 
         reqs = [op.Output[..., 0],
+                op.Output[..., 0],
+                op.Output[..., 99],
                 op.Output[..., 99],
                 op.Output[0, ...],
+                op.Output[0, ...],
+                op.Output[99, ...],
                 op.Output[99, ...],
                 op.Output[:, 0, ...],
+                op.Output[:, 0, ...],
+                op.Output[:, 99, ...],
                 op.Output[:, 99, ...]]
 
         [r.submit() for r in reqs]
 
         out = [r.wait() for r in reqs]
         for i in range(len(out)-1):
-            assert_array_equal(out[i], out[i+1])
+            try:
+                assert_array_equal(out[i].squeeze(), out[i+1].squeeze())
+            except AssertionError:
+                print(set(op._NonGlobalOutput[...].wait().flat))
+                print(set(op.Output[...].wait().flat))
+                raise
 
 
 class OpExecuteCounter(OpArrayPiper):
