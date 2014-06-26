@@ -6,6 +6,21 @@ from collections import defaultdict
 import numpy as np
 
 
+class InfiniteLabelIterator(object):
+
+    def __init__(self, n, dtype=np.uint32):
+        if not np.issubdtype(dtype, np.integer):
+            raise ValueError("Labels must have an integral type")
+        self.dtype = dtype
+        self.n = n
+
+    def next(self):
+        a = self.dtype(self.n)
+        assert a < np.iinfo(self.dtype).max, "Label overflow."
+        self.n += 1
+        return a
+
+
 class LabelGraph(object):
 
     def __init__(self, shape):

@@ -8,15 +8,16 @@ import logging
 
 from collections import defaultdict
 from functools import partial, wraps
-from itertools import count as InfiniteLabelIterator
+#from itertools import count as InfiniteLabelIterator
+from _tools import InfiniteLabelIterator
 
 from lazyflow.operator import Operator, InputSlot, OutputSlot
 from lazyflow.rtype import SubRegion
 from lazyflow.operators import OpCompressedCache
 from lazyflow.request import Request, RequestPool
-#from lazyflow.request import RequestLock as ReqLock
+from lazyflow.request import RequestLock as ReqLock
 # the lazyflow lock seems to have deadlock issues sometimes
-from threading import Lock as ReqLock
+from threading import Lock as HardLock
 from threading import Condition as _Condition
 
 from lazycc import UnionFindArray
@@ -83,7 +84,7 @@ def _supervised(method):
 #       aka 'global'
 #     * global labels: The final labels that are communicated to the outside
 #       world. These must be contiguous, i.e. if  global label j appears in the
-#       output, then for every global label i<j i also appears in the output.
+#       output, then, for every global label i<j, i also appears in the output.
 #       The actual implementation is hidden in self.globalToFinal().
 #       aka 'final'
 #
@@ -98,7 +99,8 @@ class OpLazyCC(Operator):
 
     def __init__(self, *args, **kwargs):
         super(OpLazyCC, self).__init__(*args, **kwargs)
-        self._lock = ReqLock()
+        self._lock = HardLock()
+        self._execlock = ReqLock()
 
     def setupOutputs(self):
         self.Output.meta.assignFrom(self.Input.meta)
@@ -110,18 +112,19 @@ class OpLazyCC(Operator):
         self._setDefaultInternals()
 
     def execute(self, slot, subindex, roi, result):
-        if slot is self.Output:
-            chunks = self._roiToChunkIndex(roi)
-            for chunk in chunks:
-                self._finalize(chunk)
+        with self._execlock:
+            if slot is self.Output:
+                chunks = self._roiToChunkIndex(roi)
+                for chunk in chunks:
+                    self.finalize(chunk)
 
-            self._mapArray(roi, result)
-        elif slot is self._NonGlobalOutput:
-            chunks = self._roiToChunkIndex(roi)
-            for chunk in chunks:
-                self._finalize(chunk)
+                self._mapArray(roi, result)
+            elif slot is self._NonGlobalOutput:
+                chunks = self._roiToChunkIndex(roi)
+                for chunk in chunks:
+                    self.finalize(chunk)
 
-            self._mapArray(roi, result, global_labels=False)
+                self._mapArray(roi, result, global_labels=False)
 
     def propagateDirty(self, slot, subindex, roi):
         # TODO: this is already correct, but may be over-zealous
@@ -131,20 +134,30 @@ class OpLazyCC(Operator):
         self._setDefaultInternals()
         self.Output.setDirty(slice(None))
 
+    def finalize(self, chunkIndex):
+        queue = []
+
+        # label this chunk first (not as a request, because most of the
+        # time this chunk will already be labeled)
+        self._label(chunkIndex)
+        labels = self.localToGlobal(chunkIndex, mapping=False,
+                                    update=False)
+        print("finalizing labels: {}".format(labels))
+        queue.append((chunkIndex, labels))
+        while len(queue) > 0:
+            idx, label = queue.pop()
+            queue += self._finalize(idx, label)
+
     # grow the requested region such that all labels inside that region are
     # final
     # @param chunkIndex the index of the chunk to finalize
     # @param labels array of labels that need to be finalized (omit for all)
     @_supervised
-    def _finalize(self, chunkIndex, labels=None):
+    def _finalize(self, chunkIndex, labels):
         #logger.info("Finalizing {} ...".format(chunkIndex))
 
         # get a list of neighbours that have to be checked
         neighbours = self._generateNeighbours(chunkIndex)
-
-        # label this chunk first (not as a request, because most of the
-        # time this chunk will already be labeled)
-        self._label(chunkIndex)
 
         def processNeighbour(chunk):
             self._label(chunk)
@@ -165,6 +178,7 @@ class OpLazyCC(Operator):
                                                                    labels,
                                                                    neighbours)
 
+        ret = []
         for i, l in zip(neighbours, otherLabels):
             # get the label overlap between this chunk and its neighbour
             d = np.intersect1d(labels, l)
@@ -177,7 +191,9 @@ class OpLazyCC(Operator):
             if len(d) > 0:
                 #logger.debug("Going from {} to {} because of labels {}".format(chunkIndex, i, d))
                 # start DFS recursion
-                self._finalize(i, labels=d)
+                ret.append((i, d))
+                #self._finalize(i, labels=d)
+        return ret
 
     def _registerFinalizedGlobalIndices(self, chunkIndex, labels, neighbours):
         if self._finalizedIndices[chunkIndex] is None:
@@ -241,6 +257,7 @@ class OpLazyCC(Operator):
                     self._uf.makeNewIndex()
 
     # merge the labels of two adjacent chunks
+    # the chunks have to be ordered lexicographically, e.g. by self._orderPair
     @_chunksynchronized
     def _merge(self, chunkA, chunkB):
         if chunkB in self._mergeMap[chunkA]:
@@ -270,10 +287,14 @@ class OpLazyCC(Operator):
         # union find manipulations are critical
         map_a = self.localToGlobal(chunkA, mapping=True)
         map_b = self.localToGlobal(chunkB, mapping=True)
+        print(map_a)
+        print(map_b)
         labels_a = map_a[label_hyperplane_a[adjacent_bool_inds]]
         labels_b = map_b[label_hyperplane_b[adjacent_bool_inds]]
         with self._lock:
             for a, b in zip(labels_a, labels_b):
+                print("merging {} and {}\n  {}".format(a, b, self._globalToFinal))
+                assert not (a in self._globalToFinal or b in self._globalToFinal)
                 self._uf.makeUnion(a, b)
 
     # get a rectangular region with final global labels
@@ -289,7 +310,9 @@ class OpLazyCC(Operator):
             # and we can delete the condition object to save some space (the
             # defaultdict is thread safe, at least in CPython)
             self._currentlyLabeling[idx].wait()
-            #del self._currentlyLabeling[idx]
+            with self._lock:
+                if idx in self._currentlyLabeling:
+                    del self._currentlyLabeling[idx]
 
             newroi = self._chunkIndexToRoi(idx)
             newroi.stop = np.minimum(newroi.stop, roi.stop)
@@ -327,19 +350,22 @@ class OpLazyCC(Operator):
             return out
 
     # map an array of global indices to final labels
+    # after calling this function, the labels passed in may not be used with
+    # UnionfFind.makeUnion any more!
     def globalToFinal(self, labels):
-        for l in np.unique(labels):
+        for k in np.unique(labels):
+            l = self._uf.findLabel(k)
             if l == 0:
                 continue
 
             # adding a global label is critical
             with self._lock:
-                if l not in self._globalLabels:
+                if l not in self._globalToFinal:
                     nextLabel = self._labelIterator.next()
-                    #logger.info("Adding {}->{} to global Labels {}".format(l, nextLabel, self._globalLabels))
+                    #logger.info("Adding {}->{} to global Labels {}".format(l, nextLabel, self._globalToFinal))
                     #logger.info("  Note: {} == {} == {}".format(l, self._uf.findIndex(l), self._uf.findLabel(l)))
-                    self._globalLabels[l] = nextLabel
-            labels[labels == l] = self._globalLabels[l]
+                    self._globalToFinal[l] = nextLabel
+            labels[labels == l] = self._globalToFinal[l]
 
     ##########################################################################
     ##################### HELPER METHODS #####################################
@@ -438,8 +464,8 @@ class OpLazyCC(Operator):
 
         ### global labels ###
         # keep track of assigned global labels
-        self._labelIterator = InfiniteLabelIterator(1)
-        self._globalLabels = dict()
+        self._labelIterator = InfiniteLabelIterator(1, dtype=_LABEL_TYPE)
+        self._globalToFinal = dict()
 
         ### algorithmic ###
 
@@ -454,9 +480,10 @@ class OpLazyCC(Operator):
         self._currentlyLabeling = defaultdict(Condition)
 
         # locks that keep threads from changing a specific chunk
-        locks = [ReqLock() for i in xrange(self._numIndices.size)]
-        locks = np.asarray(locks, dtype=np.object)
-        self._chunk_locks = locks.reshape(self._numIndices.shape)
+        #locks = [ReqLock() for i in xrange(self._numIndices.size)]
+        #locks = np.asarray(locks, dtype=np.object)
+        #self._chunk_locks = locks.reshape(self._numIndices.shape)
+        self._chunk_locks = defaultdict(HardLock)
 
     # order a pair of chunk indices lexicographically
     # (ret[0] is top-left-in-front-of of ret[1])
