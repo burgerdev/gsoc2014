@@ -59,11 +59,52 @@ def threadsafe(method):
         with self._lock:
             return method(self, *args, **kwargs)
 
-class PriorityLock(object):
-    
+
+class _LabelManager(object):
+
     def __init__(self):
-        self._lock = HardLock()
-        
+        self._lock = _Condition()
+        self._managedLabels = defaultdict(dict)
+        self._iterator = InfiniteLabelIterator(1, dtype=int)
+        self._registered = {}
+
+    # call before doing anything
+    @threadsafe
+    def register(self):
+        n = self._iterator.next()
+        self._registered.add(n)
+        return n
+
+    # call when done with everything
+    @threadsafe
+    def unregister(self, n):
+        self._registered.remove(n)
+        self._lock.notify_all()
+
+    # call to wait for other processes
+    @threadsafe
+    def waitFor(self, others, n):
+        others = set(others)
+        assert n not in others, "Cannot wait for myself"
+        assert n not in self._registered, "Cyclic waiting detected"
+        remaining = others.intersection(self._registered)
+        while len(remaining) > 0:
+            self._lock.wait()
+            remaining = others.intersection(self._registered)
+
+    # get a list of labels that _really_ need to be globalized by you
+    @threadsafe
+    def checkoutLabels(self, chunkIndex, labels, n):
+        labels = set(labels)
+        others = set()
+        d = self._managedLabels[chunkIndex]
+        for otherProcess, otherLabels in d.iteritems():
+            if labels & otherLabels:
+                labels -= otherLabels
+                others.add(otherProcess)
+        if labels:
+            d[n] = labels
+        return labels, others
 
 
 # locking decorator that locks per chunk
