@@ -4,6 +4,8 @@
 
 import numpy as np
 from collections import defaultdict
+from functools import partial, wraps
+
 from threading import Lock
 
 def locked(method):
@@ -18,7 +20,7 @@ def locked(method):
 class UnionFindArray(object):
 
     def __init__(self, nextFree=1):
-        self._map = dict(zip((xrange(nextFree),)*2))
+        self._map = dict(zip(*(xrange(nextFree),)*2))
         self._lock = Lock()
         self._nextFree = nextFree
 
@@ -31,8 +33,8 @@ class UnionFindArray(object):
         assert a in self._map
         assert b in self._map
         
-        a = self.find(a)
-        b = self.find(b)
+        a = self._findIndex(a)
+        b = self._findIndex(b)
         
         # avoid cycles by choosing the smallest label as the common one
         # swap such that a is smaller
@@ -62,8 +64,11 @@ class UnionFindArray(object):
 
     @locked
     def findIndex(self, a):
+        return self._findIndex(a)
+
+    def _findIndex(self, a):
         while a != self._map[a]:
-            self._map[a], a = self._map[a]
+            a = self._map[a]
         return a
 
     def __str__(self):
@@ -71,4 +76,4 @@ class UnionFindArray(object):
         return s
 
     def __getitem__(self, key):
-        return self.find(key)
+        raise NotImplementedError()
