@@ -53,6 +53,19 @@ class Condition(object):
             self._cond.notify_all()
 
 
+def threadsafe(method):
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+class PriorityLock(object):
+    
+    def __init__(self):
+        self._lock = HardLock()
+        
+
+
 # locking decorator that locks per chunk
 def _chunksynchronized(method):
     @wraps(method)
@@ -95,9 +108,6 @@ class OpLazyCC(Operator):
     ChunkShape = InputSlot()
     Output = OutputSlot()
 
-    # debug outputs
-    _NonGlobalOutput = OutputSlot()
-
     def __init__(self, *args, **kwargs):
         super(OpLazyCC, self).__init__(*args, **kwargs)
         self._lock = HardLock()
@@ -119,12 +129,6 @@ class OpLazyCC(Operator):
                 self.finalize(chunk)
 
             self._mapArray(roi, result)
-        elif slot is self._NonGlobalOutput:
-            chunks = self._roiToChunkIndex(roi)
-            for chunk in chunks:
-                self.finalize(chunk)
-
-            self._mapArray(roi, result, global_labels=False)
 
     def propagateDirty(self, slot, subindex, roi):
         # TODO: this is already correct, but may be over-zealous
@@ -155,6 +159,40 @@ class OpLazyCC(Operator):
         # notify other processes that we are finished
         for idx in done:
             self._currentlyLabeling[idx].unregister()
+
+    def growRegion(self, chunkIndex):
+        prio = self._prio.getPriority()
+
+        chunksToProcess = set([chunkIndex])
+        chunksProcessed = set()
+
+        while chunksToProcess:
+            currentChunk = chunksToProcess.pop()
+            otherThreads = self._prio.register(currentChunk, prio)
+            if len(otherThreads) > 0:
+                # we may not continue, another process is labeling here
+                # wait for this process to finish and return (nothing to do)
+                self._prio.wait(otherThreads)
+                return
+
+            # we are free to continue with this chunk
+
+            # label this
+            self._label(chunkIndex)
+            labels = self.localToGlobal(chunkIndex, mapping=False,
+                                        update=False)
+
+            # get a list of neighbours that have to be checked
+            neighbours = set(self._generateNeighbours(currentChunk))
+            # remove the neighbours that we already visited
+            neighbours -= chunksProcessed
+
+            # label the neighbours
+            for other in neighbours:
+                self._label(other)
+
+
+        
 
     # grow the requested region such that all labels inside that region are
     # final

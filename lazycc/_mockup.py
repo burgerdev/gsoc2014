@@ -8,6 +8,8 @@ from functools import partial, wraps
 
 from threading import Lock
 
+from _tools import InfiniteLabelIterator
+
 def locked(method):
     @wraps(method)
     def wrapped(self, *args, **kwargs):
@@ -23,6 +25,7 @@ class UnionFindArray(object):
         self._map = dict(zip(*(xrange(nextFree),)*2))
         self._lock = Lock()
         self._nextFree = nextFree
+        self._it = None
 
     ## join regions a and b
     # callback is called whenever two regions are joined that were
@@ -32,19 +35,16 @@ class UnionFindArray(object):
     def makeUnion(self, a, b):
         assert a in self._map
         assert b in self._map
-        
+
         a = self._findIndex(a)
         b = self._findIndex(b)
-        
+
         # avoid cycles by choosing the smallest label as the common one
         # swap such that a is smaller
         if a > b:
             a, b = b, a
 
         self._map[b] = a
-        
-        
-        
 
     def finalizeLabel(self, a):
         raise NotImplementedError()
