@@ -20,20 +20,14 @@ from lazyflow.request import RequestLock as ReqLock
 from threading import Lock as HardLock
 from threading import Condition
 
-from _mockup import UnionFindArray
-#from lazycc import UnionFindArray
+#from _mockup import UnionFindArray
+from lazycc import UnionFindArray
 
 # logging.basicConfig()
 logger = logging.getLogger(__name__)
 # logger.setLevel(logging.DEBUG)
 
 _LABEL_TYPE = np.uint32
-
-class PseudoLock(object):
-    def __enter__(self, *args, **kwargs):
-        pass
-    def __exit__(self, *args, **kwargs):
-        pass
 
 
 def threadsafe(method):
@@ -57,7 +51,6 @@ class _LabelManager(object):
     def register(self):
         n = self._iterator.next()
         self._registered.add(n)
-        print("Registered {}".format(n))
         return n
 
     # call when done with everything
@@ -65,20 +58,15 @@ class _LabelManager(object):
     def unregister(self, n):
         self._registered.remove(n)
         self._lock.notify_all()
-        print("Unregistered {}".format(n))
 
     # call to wait for other processes
     @threadsafe
     def waitFor(self, others):
-        import threading
-        mynum = str(threading.current_thread())
         others = set(others)
         remaining = others & self._registered
-        print("[{}] Waiting for {}".format(mynum, remaining))
         while len(remaining) > 0:
             self._lock.wait()
             remaining &= self._registered
-            print("[{}] Still waiting for {} ({})".format(mynum, remaining, self._registered))
 
     # get a list of labels that _really_ need to be globalized by you
     @threadsafe
@@ -128,7 +116,6 @@ class OpLazyCC(Operator):
 
     def __init__(self, *args, **kwargs):
         super(OpLazyCC, self).__init__(*args, **kwargs)
-        #self._lock = PseudoLock()
         self._lock = HardLock()
 
     def setupOutputs(self):
@@ -458,13 +445,8 @@ class OpLazyCC(Operator):
         # keep track of merged regions
         self._mergeMap = defaultdict(list)
 
-        # keep track of the indices that have been finalized
-        self._finalizedIndices = np.empty(self._chunkArrayShape,
-                                          dtype=np.object)
-
         # locks that keep threads from changing a specific chunk
         self._chunk_locks = defaultdict(HardLock)
-        #self._chunk_locks = defaultdict(PseudoLock)
 
     # order a pair of chunk indices lexicographically
     # (ret[0] is top-left-in-front-of of ret[1])
