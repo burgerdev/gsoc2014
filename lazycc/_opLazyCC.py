@@ -20,8 +20,8 @@ from lazyflow.request import RequestLock as ReqLock
 from threading import Lock as HardLock
 from threading import Condition
 
-#from _mockup import UnionFindArray
-from lazycc import UnionFindArray
+from _mockup import UnionFindArray
+#from lazycc import UnionFindArray
 
 # logging.basicConfig()
 logger = logging.getLogger(__name__)
@@ -268,12 +268,6 @@ class OpLazyCC(Operator):
             labels_a = map_a[label_hyperplane_a[adjacent_bool_inds]]
             labels_b = map_b[label_hyperplane_b[adjacent_bool_inds]]
             for a, b in zip(labels_a, labels_b):
-                if (a in self._globalToFinal or b in self._globalToFinal):
-                    pass
-                    #print(chunkA, chunkB)
-                    #print(map_a, map_b)
-                    #print("ARRGH")
-                    #raise RuntimeError("Trying to process labels that are final")
                 self._uf.makeUnion(a, b)
         correspondingLabelsA = label_hyperplane_a[adjacent_bool_inds]
         correspondingLabelsB = label_hyperplane_b[adjacent_bool_inds]
@@ -325,6 +319,7 @@ class OpLazyCC(Operator):
     # map an array of global indices to final labels
     # after calling this function, the labels passed in may not be used with
     # UnionFind.makeUnion any more!
+    @threadsafe
     def globalToFinal(self, labels):
         for k in np.unique(labels):
             l = self._uf.findIndex(k)
@@ -332,10 +327,9 @@ class OpLazyCC(Operator):
                 continue
 
             # adding a global label is critical
-            with self._lock:
-                if l not in self._globalToFinal:
-                    nextLabel = self._labelIterator.next()
-                    self._globalToFinal[l] = nextLabel
+            if l not in self._globalToFinal:
+                nextLabel = self._labelIterator.next()
+                self._globalToFinal[l] = nextLabel
             labels[labels == l] = self._globalToFinal[l]
 
     ##########################################################################
