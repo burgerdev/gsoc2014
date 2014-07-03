@@ -18,7 +18,7 @@ from lazyflow.request import Request, RequestPool
 from lazyflow.request import RequestLock as ReqLock
 # the lazyflow lock seems to have deadlock issues sometimes
 from threading import Lock as HardLock
-from threading import Condition as _Condition
+from threading import Condition
 
 from _mockup import UnionFindArray
 #from lazycc import UnionFindArray
@@ -29,28 +29,11 @@ logger = logging.getLogger(__name__)
 
 _LABEL_TYPE = np.uint32
 
-
-class Condition(object):
-    def __init__(self):
-        self._cond = _Condition()
-        self._count = 0
-
-    # register a thread working on this chunk
-    def register(self):
-        with self._cond:
-            self._count += 1
-
-    # wait until all threads working on this chunk are finished
-    def wait(self):
-        with self._cond:
-            while self._count > 0:
-                self._cond.wait()
-
-    # signal that the current thread is finished working on this chunk
-    def unregister(self):
-        with self._cond:
-            self._count = max(self._count-1, 0)
-            self._cond.notify_all()
+class PseudoLock(object):
+    def __enter__(self, *args, **kwargs):
+        pass
+    def __exit__(self, *args, **kwargs):
+        pass
 
 
 def threadsafe(method):
@@ -58,21 +41,23 @@ def threadsafe(method):
     def wrapped(self, *args, **kwargs):
         with self._lock:
             return method(self, *args, **kwargs)
+    return wrapped
 
 
 class _LabelManager(object):
 
     def __init__(self):
-        self._lock = _Condition()
+        self._lock = Condition()
         self._managedLabels = defaultdict(dict)
         self._iterator = InfiniteLabelIterator(1, dtype=int)
-        self._registered = {}
+        self._registered = set()
 
     # call before doing anything
     @threadsafe
     def register(self):
         n = self._iterator.next()
         self._registered.add(n)
+        print("Registered {}".format(n))
         return n
 
     # call when done with everything
@@ -80,29 +65,32 @@ class _LabelManager(object):
     def unregister(self, n):
         self._registered.remove(n)
         self._lock.notify_all()
+        print("Unregistered {}".format(n))
 
     # call to wait for other processes
     @threadsafe
-    def waitFor(self, others, n):
+    def waitFor(self, others):
+        import threading
+        mynum = str(threading.current_thread())
         others = set(others)
-        assert n not in others, "Cannot wait for myself"
-        assert n not in self._registered, "Cyclic waiting detected"
-        remaining = others.intersection(self._registered)
+        remaining = others & self._registered
+        print("[{}] Waiting for {}".format(mynum, remaining))
         while len(remaining) > 0:
             self._lock.wait()
-            remaining = others.intersection(self._registered)
+            remaining &= self._registered
+            print("[{}] Still waiting for {} ({})".format(mynum, remaining, self._registered))
 
     # get a list of labels that _really_ need to be globalized by you
     @threadsafe
     def checkoutLabels(self, chunkIndex, labels, n):
-        labels = set(labels)
         others = set()
         d = self._managedLabels[chunkIndex]
         for otherProcess, otherLabels in d.iteritems():
-            if labels & otherLabels:
-                labels -= otherLabels
+            inters = np.intersect1d(labels, otherLabels)
+            if inters.size > 0:
+                labels = np.setdiff1d(labels, inters)
                 others.add(otherProcess)
-        if labels:
+        if labels.size > 0:
             d[n] = labels
         return labels, others
 
@@ -114,17 +102,6 @@ def _chunksynchronized(method):
         with self._chunk_locks[chunkIndex]:
             return method(self, chunkIndex, *args, **kwargs)
     return synchronizedmethod
-
-
-# decorator that tracks how many threads are labeling a chunk
-def _supervised(method):
-    @wraps(method)
-    def supervisedmethod(self, chunkIndex, *args, **kwargs):
-        self._currentlyLabeling[chunkIndex].register()
-        a = method(self, chunkIndex, *args, **kwargs)
-        self._currentlyLabeling[chunkIndex].signal()
-        return a
-    return supervisedmethod
 
 
 # general approach
@@ -151,13 +128,12 @@ class OpLazyCC(Operator):
 
     def __init__(self, *args, **kwargs):
         super(OpLazyCC, self).__init__(*args, **kwargs)
+        #self._lock = PseudoLock()
         self._lock = HardLock()
-        self._execlock = ReqLock()
 
     def setupOutputs(self):
         self.Output.meta.assignFrom(self.Input.meta)
         self.Output.meta.dtype = _LABEL_TYPE
-        self._NonGlobalOutput.meta.assignFrom(self.Output.meta)
         assert self.Input.meta.dtype in [np.uint8, np.uint32, np.uint64],\
             "Cannot label data type {}".format(self.Input.meta.dtype)
 
@@ -165,10 +141,12 @@ class OpLazyCC(Operator):
 
     def execute(self, slot, subindex, roi, result):
         if slot is self.Output:
+            othersToWaitFor = set()
             chunks = self._roiToChunkIndex(roi)
             for chunk in chunks:
-                self.finalize(chunk)
+                othersToWaitFor |= self.growRegion(chunk)
 
+            self._manager.waitFor(othersToWaitFor)
             self._mapArray(roi, result)
 
     def propagateDirty(self, slot, subindex, roi):
@@ -179,128 +157,61 @@ class OpLazyCC(Operator):
         self._setDefaultInternals()
         self.Output.setDirty(slice(None))
 
-    def finalize(self, chunkIndex):
-        # the stack holds the indices that still have to be labeled
-        stack = []
-
-        # done holds the chunks that were finalized by this chunk
-        done = []
-
-        # label this chunk first
-        self._label(chunkIndex)
-        labels = self.localToGlobal(chunkIndex, mapping=False,
-                                    update=False)
-        stack.append((chunkIndex, labels))
-        while len(stack) > 0:
-            idx, label = stack.pop()
-            self._currentlyLabeling[idx].register()
-            stack += self._finalize(idx, label)
-            done.append(idx)
-
-        # notify other processes that we are finished
-        for idx in done:
-            self._currentlyLabeling[idx].unregister()
-
-    def growRegion(self, chunkIndex):
-        prio = self._prio.getPriority()
-
-        chunksToProcess = set([chunkIndex])
-        chunksProcessed = set()
-
-        while chunksToProcess:
-            currentChunk = chunksToProcess.pop()
-            otherThreads = self._prio.register(currentChunk, prio)
-            if len(otherThreads) > 0:
-                # we may not continue, another process is labeling here
-                # wait for this process to finish and return (nothing to do)
-                self._prio.wait(otherThreads)
-                return
-
-            # we are free to continue with this chunk
-
-            # label this
-            self._label(chunkIndex)
-            labels = self.localToGlobal(chunkIndex, mapping=False,
-                                        update=False)
-
-            # get a list of neighbours that have to be checked
-            neighbours = set(self._generateNeighbours(currentChunk))
-            # remove the neighbours that we already visited
-            neighbours -= chunksProcessed
-
-            # label the neighbours
-            for other in neighbours:
-                self._label(other)
-
-
-        
-
     # grow the requested region such that all labels inside that region are
     # final
     # @param chunkIndex the index of the chunk to finalize
-    # @param labels array of labels that need to be finalized (omit for all)
-    def _finalize(self, chunkIndex, labels):
-        #logger.info("Finalizing {} ...".format(chunkIndex))
+    def growRegion(self, chunkIndex):
+        ticket = self._manager.register()
+        othersToWaitFor = set()
 
-        # get a list of neighbours that have to be checked
-        neighbours = self._generateNeighbours(chunkIndex)
+        # we want to finalize every label in our first chunk
+        localLabels = np.arange(1, self._numIndices[chunkIndex]+1)
+        localLabels = localLabels.astype(_LABEL_TYPE)
+        chunksToProcess = {chunkIndex: localLabels}
 
-        def processNeighbour(chunk):
-            self._label(chunk)
-            self._merge(*self._orderPair(chunkIndex, chunk))
+        while chunksToProcess:
+            currentChunk, localLabels = chunksToProcess.popitem()
 
-        # label all neighbouring chunks, merge adjacent labels
-        for other in neighbours:
-            processNeighbour(other)
+            # label this chunk
+            self._label(chunkIndex)
 
-        # tell others that we are finalizing this chunk
-        labels, otherLabels = self._registerFinalizedGlobalIndices(chunkIndex,
-                                                                   labels,
-                                                                   neighbours)
+            # get the labels in use by this chunk
+            localLabels = np.arange(1, self._numIndices[currentChunk]+1)
+            localLabels = localLabels.astype(_LABEL_TYPE)
 
-        ret = []
-        for i, l in zip(neighbours, otherLabels):
-            # get the label overlap between this chunk and its neighbour
-            d = np.intersect1d(labels, l)
-            # don't go to finalized neighbours
-            # no need for lock
-            if self._finalizedIndices[i] is not None:
-                finalized = map(self._uf.findIndex, self._finalizedIndices[i])
-                d = np.setdiff1d(d, finalized)
-            d = d.astype(_LABEL_TYPE)
-            if len(d) > 0:
-                #logger.debug("Going from {} to {} because of labels {}".format(chunkIndex, i, d))
-                # start DFS recursion
-                ret.append((i, d))
-                #self._finalize(i, labels=d)
-        return ret
+            # tell the label manager that we are about to finalize some labels
+            actualLabels, others = self._manager.checkoutLabels(currentChunk,
+                                                                localLabels,
+                                                                ticket)
+            othersToWaitFor |= others
 
-    def _registerFinalizedGlobalIndices(self, chunkIndex, labels, neighbours):
-        if self._finalizedIndices[chunkIndex] is None:
-            self._finalizedIndices[chunkIndex] = np.zeros((0,),
-                                                          dtype=_LABEL_TYPE)
+            # now we have got a list of local labels for this chunk, which no
+            # other process is going to finalize
 
-        # let the others know that we are finalizing this chunk
-        # and compute the updated labels on the way
-        with self._lock:
-            # currently finalized global indices for this chunk, possibly not
-            # up to date
-            currently_finalized = self._finalizedIndices[chunkIndex]
+            # start merging adjacent regions
+            otherChunks = self._generateNeighbours(currentChunk)
+            for other in otherChunks:
+                self._label(other)
+                a, b = self._orderPair(currentChunk, other)
+                me = 0 if a == chunkIndex else 1
+                res = self._merge(a, b)
+                myLabels, otherLabels = res[me], res[1-me]
 
-            # update both sets
-            finalized = map(self._uf.findIndex, currently_finalized)
-            labels = map(self._uf.findIndex, labels)
+                # determine which objects from this chunk actually continue in
+                # the neighbouring chunk
+                extendingLabels = [b for a, b in zip(myLabels, otherLabels)
+                                   if a in actualLabels]
+                extendingLabels = np.unique(extendingLabels
+                                            ).astype(_LABEL_TYPE)
 
-            # now that we have the lock, lets globalize the neighbouring labels
-            otherLabels = [self.localToGlobal(n, mapping=False)
-                           for n in neighbours]
+                if extendingLabels.size > 0:
+                    if other in chunksToProcess:
+                        extendingLabels = np.union1d(chunksToProcess[other],
+                                                     extendingLabels)
+                    chunksToProcess[other] = extendingLabels
 
-            # update the finalization state
-            now_finalized = np.union1d(finalized, labels).astype(_LABEL_TYPE)
-            self._finalizedIndices[chunkIndex] = now_finalized
-
-        labels = np.setdiff1d(labels, finalized).astype(_LABEL_TYPE)
-        return labels, otherLabels
+        self._manager.unregister(ticket)
+        return othersToWaitFor
 
     # label a chunk and store information
     @_chunksynchronized
@@ -314,7 +225,6 @@ class OpLazyCC(Operator):
         inputChunk = self.Input.get(roi).wait()
 
         # label the raw data
-        #logger.info("Labeling {} ...".format(chunkIndex))
         labeled = vigra.analysis.labelVolumeWithBackground(inputChunk)
         del inputChunk
 
@@ -341,7 +251,7 @@ class OpLazyCC(Operator):
     @_chunksynchronized
     def _merge(self, chunkA, chunkB):
         if chunkB in self._mergeMap[chunkA]:
-            return
+            return (np.zeros((0,), dtype=_LABEL_TYPE),)*2
         self._mergeMap[chunkA].append(chunkB)
 
         hyperplane_roi_a, hyperplane_roi_b = \
@@ -356,8 +266,9 @@ class OpLazyCC(Operator):
         adjacent_bool_inds = np.logical_and(label_hyperplane_a > 0,
                                             label_hyperplane_b > 0)
         if not np.any(adjacent_bool_inds):
-            return
+            return (np.zeros((0,), dtype=_LABEL_TYPE),)*2
 
+        # check if the labels do actually belong to the same component
         hyperplane_a = self.Input[hyperplane_index_a].wait()
         hyperplane_b = self.Input[hyperplane_index_b].wait()
         adjacent_bool_inds = np.logical_and(adjacent_bool_inds,
@@ -371,10 +282,15 @@ class OpLazyCC(Operator):
             labels_b = map_b[label_hyperplane_b[adjacent_bool_inds]]
             for a, b in zip(labels_a, labels_b):
                 if (a in self._globalToFinal or b in self._globalToFinal):
-                    print(chunkA, chunkB)
-                    print(map_a, map_b)
-                    raise RuntimeError("Trying to process labels that are final")
+                    pass
+                    #print(chunkA, chunkB)
+                    #print(map_a, map_b)
+                    #print("ARRGH")
+                    #raise RuntimeError("Trying to process labels that are final")
                 self._uf.makeUnion(a, b)
+        correspondingLabelsA = label_hyperplane_a[adjacent_bool_inds]
+        correspondingLabelsB = label_hyperplane_b[adjacent_bool_inds]
+        return correspondingLabelsA, correspondingLabelsB
 
     # get a rectangular region with final global labels
     # @param roi region of interest
@@ -384,14 +300,6 @@ class OpLazyCC(Operator):
         assert np.all(roi.stop - roi.start == result.shape)
         indices = self._roiToChunkIndex(roi)
         for idx in indices:
-            # first of all, wait until all threads are finished with this chunk
-            # if we get past the next line, all other threads also got past it
-            # and we can delete the condition object to save some space
-            self._currentlyLabeling[idx].wait()
-            with self._lock:
-                if idx in self._currentlyLabeling:
-                    del self._currentlyLabeling[idx]
-
             newroi = self._chunkIndexToRoi(idx)
             newroi.stop = np.minimum(newroi.stop, roi.stop)
             newroi.start = np.maximum(newroi.start, roi.start)
@@ -429,7 +337,7 @@ class OpLazyCC(Operator):
 
     # map an array of global indices to final labels
     # after calling this function, the labels passed in may not be used with
-    # UnionfFind.makeUnion any more!
+    # UnionFind.makeUnion any more!
     def globalToFinal(self, labels):
         for k in np.unique(labels):
             l = self._uf.findIndex(k)
@@ -512,7 +420,6 @@ class OpLazyCC(Operator):
 
     # fills attributes with standard values, call on each setupOutputs
     def _setDefaultInternals(self):
-
         # chunk array shape calculation
         shape = self.Input.meta.shape
         chunkShape = self.ChunkShape.value
@@ -522,6 +429,9 @@ class OpLazyCC(Operator):
                                                  else 0)
         self._chunkArrayShape = tuple(map(f, range(3)))
         self._chunkShape = np.asarray(chunkShape, dtype=np.int)
+
+        # manager object
+        self._manager = _LabelManager()
 
         ### local labels ###
         # cache for local labels
@@ -552,14 +462,9 @@ class OpLazyCC(Operator):
         self._finalizedIndices = np.empty(self._chunkArrayShape,
                                           dtype=np.object)
 
-        # count how many threads are labeling this chunk
-        self._currentlyLabeling = defaultdict(Condition)
-
         # locks that keep threads from changing a specific chunk
-        #locks = [ReqLock() for i in xrange(self._numIndices.size)]
-        #locks = np.asarray(locks, dtype=np.object)
-        #self._chunk_locks = locks.reshape(self._numIndices.shape)
         self._chunk_locks = defaultdict(HardLock)
+        #self._chunk_locks = defaultdict(PseudoLock)
 
     # order a pair of chunk indices lexicographically
     # (ret[0] is top-left-in-front-of of ret[1])
@@ -570,5 +475,5 @@ class OpLazyCC(Operator):
                 return tupA, tupB
             if a > b:
                 return tupB, tupA
-        logger.warn("tupA and tupB are the same")
+        raise ValueError("tupA={} and tupB={} are the same".format(tupA, tupB))
         return tupA, tupB

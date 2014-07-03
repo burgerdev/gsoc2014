@@ -298,7 +298,6 @@ class TestOpLazyCC(unittest.TestCase):
             try:
                 assert_array_equal(out[i].squeeze(), out[i+1].squeeze())
             except AssertionError:
-                print(set(op._NonGlobalOutput[...].wait().flat))
                 print(set(op.Output[...].wait().flat))
                 raise
 
