@@ -184,13 +184,15 @@ class OpLazyCC(Operator):
                 res = self._merge(a, b)
                 myLabels, otherLabels = res[me], res[1-me]
 
-                # determine which objects from this chunk actually continue in
-                # the neighbouring chunk
+                # determine which objects from this chunk continue in the
+                # neighbouring chunk
                 extendingLabels = [b for a, b in zip(myLabels, otherLabels)
                                    if a in actualLabels]
                 extendingLabels = np.unique(extendingLabels
                                             ).astype(_LABEL_TYPE)
 
+                # add the neighbour to our processing queue only if it actually
+                # shares objects
                 if extendingLabels.size > 0:
                     if other in chunksToProcess:
                         extendingLabels = np.union1d(chunksToProcess[other],
@@ -284,14 +286,26 @@ class OpLazyCC(Operator):
             newroi = self._chunkIndexToRoi(idx)
             newroi.stop = np.minimum(newroi.stop, roi.stop)
             newroi.start = np.maximum(newroi.start, roi.start)
-            labels = self.localToGlobal(idx, mapping=True)
-            if global_labels:
-                self.globalToFinal(labels)
+            self._mapChunk(idx)
             chunk = self._cache[newroi.toSlice()]
             newroi.start -= roi.start
             newroi.stop -= roi.start
             s = newroi.toSlice()
-            result[s] = labels[chunk]
+            result[s] = chunk
+
+    @_chunksynchronized
+    def _mapChunk(self, chunkIndex):
+        if self._isFinal[chunkIndex]:
+            return
+
+        newroi = self._chunkIndexToRoi(chunkIndex)
+        s = newroi.toSlice()
+        chunk = self._cache[s]
+        labels = self.localToGlobal(chunkIndex, mapping=True)
+        self.globalToFinal(labels)
+        self._cache[s] = labels[chunk]
+
+        self._isFinal[chunkIndex] = True
 
     # returns an array of global labels in use by this chunk if 'mapping' is
     # False, a mapping of local labels to global labels otherwise
@@ -433,6 +447,7 @@ class OpLazyCC(Operator):
         # keep track of assigned global labels
         self._labelIterator = InfiniteLabelIterator(1, dtype=_LABEL_TYPE)
         self._globalToFinal = dict()
+        self._isFinal = np.zeros(self._chunkArrayShape, dtype=np.bool)
 
         ### algorithmic ###
 
