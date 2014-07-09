@@ -13,7 +13,7 @@ from _tools import InfiniteLabelIterator
 
 from lazyflow.operator import Operator, InputSlot, OutputSlot
 from lazyflow.rtype import SubRegion
-from lazyflow.operators import OpCompressedCache
+from lazyflow.operators import OpCompressedCache, OpReorderAxes
 from lazyflow.request import Request, RequestPool
 from lazyflow.request import RequestLock as ReqLock
 # the lazyflow lock seems to have deadlock issues sometimes
@@ -108,26 +108,50 @@ def _chunksynchronized(method):
 #       The actual implementation is hidden in self.globalToFinal().
 #       aka 'final'
 #
-# 3d data only, xyz
 class OpLazyCC(Operator):
+
+    # input data (usually segmented), in 'txyzc' order
     Input = InputSlot()
+
+    # the spatial shape of one chunk, in 'xyz' order
     ChunkShape = InputSlot()
+
+    # the labeled output, internally cached
     Output = OutputSlot()
+
+    ### INTERNALS -- DO NOT USE ###
+    _Input = OutputSlot()
+    _Output = OutputSlot()
 
     def __init__(self, *args, **kwargs):
         super(OpLazyCC, self).__init__(*args, **kwargs)
         self._lock = HardLock()
 
+        # reordering operators - we want to handle txyzc inside this operator
+        self._opIn = OpReorderAxes(parent=self)
+        self._opIn.AxisOrder.setValue('txyzc')
+        self._opIn.Input.connect(self.Input)
+        self._Input.connect(self._opIn.Output)
+
+        self._opOut = OpReorderAxes(parent=self)
+        self._opOut.Input.connect(self._Output)
+        self.Output.connect(self._opOut.Output)
+
     def setupOutputs(self):
         self.Output.meta.assignFrom(self.Input.meta)
         self.Output.meta.dtype = _LABEL_TYPE
+        self._Output.meta.assignFrom(self._Input.meta)
+        self._Output.meta.dtype = _LABEL_TYPE
         assert self.Input.meta.dtype in [np.uint8, np.uint32, np.uint64],\
             "Cannot label data type {}".format(self.Input.meta.dtype)
 
         self._setDefaultInternals()
 
+        # go back to original order
+        self._opOut.AxisOrder.setValue(self.Input.meta.getAxisKeys())
+
     def execute(self, slot, subindex, roi, result):
-        if slot is self.Output:
+        if slot is self._Output:
             othersToWaitFor = set()
             chunks = self._roiToChunkIndex(roi)
             for chunk in chunks:
@@ -135,6 +159,8 @@ class OpLazyCC(Operator):
 
             self._manager.waitFor(othersToWaitFor)
             self._mapArray(roi, result)
+        else:
+            raise ValueError("Request to invalid slot {}".format(str(slot)))
 
     def propagateDirty(self, slot, subindex, roi):
         # TODO: this is already correct, but may be over-zealous
@@ -211,11 +237,15 @@ class OpLazyCC(Operator):
 
         # get the raw data
         roi = self._chunkIndexToRoi(chunkIndex)
-        inputChunk = self.Input.get(roi).wait()
+        inputChunk = self._Input.get(roi).wait()
+        inputChunk = vigra.taggedView(inputChunk, axistags='txyzc')
+        inputChunk = inputChunk.withAxes(*'xyz')
 
         # label the raw data
         labeled = vigra.analysis.labelVolumeWithBackground(inputChunk)
+        labeled = vigra.taggedView(labeled, axistags='xyz').withAxes(*'txyzc')
         del inputChunk
+        #TODO this could be more efficiently combined with merging
 
         # store the labeled data in cache
         self._cache[roi.toSlice()] = labeled
@@ -258,8 +288,8 @@ class OpLazyCC(Operator):
             return (np.zeros((0,), dtype=_LABEL_TYPE),)*2
 
         # check if the labels do actually belong to the same component
-        hyperplane_a = self.Input[hyperplane_index_a].wait()
-        hyperplane_b = self.Input[hyperplane_index_b].wait()
+        hyperplane_a = self._Input[hyperplane_index_a].wait()
+        hyperplane_b = self._Input[hyperplane_index_b].wait()
         adjacent_bool_inds = np.logical_and(adjacent_bool_inds,
                                             hyperplane_a == hyperplane_b)
 
@@ -302,7 +332,7 @@ class OpLazyCC(Operator):
         s = newroi.toSlice()
         chunk = self._cache[s]
         labels = self.localToGlobal(chunkIndex, mapping=True)
-        self.globalToFinal(labels)
+        self.globalToFinal(chunkIndex[0], chunkIndex[4], labels)
         self._cache[s] = labels[chunk]
 
         self._isFinal[chunkIndex] = True
@@ -334,17 +364,19 @@ class OpLazyCC(Operator):
     # after calling this function, the labels passed in may not be used with
     # UnionFind.makeUnion any more!
     @threadsafe
-    def globalToFinal(self, labels):
+    def globalToFinal(self, t, c, labels):
+        d = self._globalToFinal[(t, c)]
+        labeler = self._labelIterators[(t, c)]
         for k in np.unique(labels):
             l = self._uf.findIndex(k)
             if l == 0:
                 continue
 
             # adding a global label is critical
-            if l not in self._globalToFinal:
-                nextLabel = self._labelIterator.next()
-                self._globalToFinal[l] = nextLabel
-            labels[labels == l] = self._globalToFinal[l]
+            if l not in d:
+                nextLabel = labeler.next()
+                d[l] = nextLabel
+            labels[labels == l] = d[l]
 
     ##########################################################################
     ##################### HELPER METHODS #####################################
@@ -352,7 +384,7 @@ class OpLazyCC(Operator):
 
     # create roi object from chunk index
     def _chunkIndexToRoi(self, index):
-        shape = self.Input.meta.shape
+        shape = self._shape
         start = self._chunkShape * np.asarray(index)
         stop = self._chunkShape * (np.asarray(index) + 1)
         stop = np.where(stop > shape, shape, stop)
@@ -370,17 +402,24 @@ class OpLazyCC(Operator):
         # add one if division was not even
         stop_cs += np.where(stop % cs, 1, 0)
         chunks = []
-        for x in range(start_cs[0], stop_cs[0]):
-            for y in range(start_cs[1], stop_cs[1]):
-                for z in range(start_cs[2], stop_cs[2]):
-                    chunks.append((x, y, z))
+        #TODO do this smarter, perhaps?
+        for t in range(start_cs[0], stop_cs[0]):
+            for x in range(start_cs[1], stop_cs[1]):
+                for y in range(start_cs[2], stop_cs[2]):
+                    for z in range(start_cs[3], stop_cs[3]):
+                        for c in range(start_cs[4], stop_cs[4]):
+                            chunks.append((t, x, y, z, c))
         return chunks
 
     # compute the adjacent hyperplanes of two chunks (1 pix wide)
     # @return 2-tuple of roi's for the respective chunk
     def _chunkIndexToHyperplane(self, chunkA, chunkB):
         rev = False
-        for i in range(len(chunkA)):
+        assert chunkA[0] == chunkB[0] and chunkA[4] == chunkB[4],\
+            "these chunks are not spatially adjacent"
+
+        # just iterate over spatial axes
+        for i in range(1, 4):
             if chunkA[i] > chunkB[i]:
                 rev = True
                 chunkA, chunkB = chunkB, chunkA
@@ -402,7 +441,8 @@ class OpLazyCC(Operator):
     def _generateNeighbours(self, chunkIndex):
         n = []
         idx = np.asarray(chunkIndex, dtype=np.int)
-        for i in range(len(chunkIndex)):
+        # only spatial neighbours are considered
+        for i in range(1, 4):
             if idx[i] > 0:
                 new = idx.copy()
                 new[i] -= 1
@@ -416,14 +456,16 @@ class OpLazyCC(Operator):
     # fills attributes with standard values, call on each setupOutputs
     def _setDefaultInternals(self):
         # chunk array shape calculation
-        shape = self.Input.meta.shape
-        chunkShape = self.ChunkShape.value
+        #TODO change here when removing OpReorder
+        shape = self._Input.meta.shape
+        chunkShape = (1,) + self.ChunkShape.value + (1,)
         assert len(shape) == len(chunkShape),\
             "Encountered an invalid chunkShape"
         f = lambda i: shape[i]//chunkShape[i] + (1 if shape[i] % chunkShape[i]
                                                  else 0)
-        self._chunkArrayShape = tuple(map(f, range(3)))
+        self._chunkArrayShape = tuple(map(f, range(len(shape))))
         self._chunkShape = np.asarray(chunkShape, dtype=np.int)
+        self._shape = shape
 
         # manager object
         self._manager = _LabelManager()
@@ -445,8 +487,9 @@ class OpLazyCC(Operator):
 
         ### global labels ###
         # keep track of assigned global labels
-        self._labelIterator = InfiniteLabelIterator(1, dtype=_LABEL_TYPE)
-        self._globalToFinal = dict()
+        gen = partial(InfiniteLabelIterator, 1, dtype=_LABEL_TYPE)
+        self._labelIterators = defaultdict(gen)
+        self._globalToFinal = defaultdict(dict)
         self._isFinal = np.zeros(self._chunkArrayShape, dtype=np.bool)
 
         ### algorithmic ###

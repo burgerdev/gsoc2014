@@ -301,6 +301,55 @@ class TestOpLazyCC(unittest.TestCase):
                 print(set(op.Output[...].wait().flat))
                 raise
 
+    def testMultiDimSame(self):
+        vol = np.zeros((2, 10, 10, 1, 3))
+        vol = vol.astype(np.uint8)
+        vol = vigra.taggedView(vol, axistags='txyzc')
+
+        vol[:, 3:7, 3:7, :] = 1
+
+        op = OpLabelVolume(graph=Graph())
+        op.Input.setValue(vol)
+        op.ChunkShape.setValue((5, 5, 1))
+
+        out = op.Output[...].wait()
+        out = vigra.taggedView(out, axistags=op.Output.meta.axistags)
+        assert_array_equal(out[0, ...], out[1, ...])
+
+    def testMultiDimDiff(self):
+        vol = np.zeros((2, 10, 10, 1, 3))
+        vol = vol.astype(np.uint8)
+        vol = vigra.taggedView(vol, axistags='txyzc')
+
+        vol[0, 3:7, 3:7, :] = 1
+        vol[1, 7:, 7:, :] = 1
+
+        op = OpLabelVolume(graph=Graph())
+        op.Input.setValue(vol)
+        op.ChunkShape.setValue((5, 5, 1))
+
+        out = op.Output[...].wait()
+        out = vigra.taggedView(out, axistags=op.Output.meta.axistags)
+        assert np.all(out[1, :7, :7, ...] == 0)
+
+    def testStrangeDim(self):
+        vol = np.zeros((2, 10, 10, 1, 3))
+        vol = vol.astype(np.uint8)
+        vol = vigra.taggedView(vol, axistags='txyzc')
+
+        vol[:, 3:7, 3:7, :] = 1
+
+        strangeVol = vol.withAxes(*'ytxcz')
+
+        op = OpLabelVolume(graph=Graph())
+        op.Input.setValue(strangeVol)
+        op.ChunkShape.setValue((5, 5, 1))
+
+        out = op.Output[...].wait()
+        out = vigra.taggedView(out, axistags=op.Output.meta.axistags)
+        out = out.withAxes(*'txyzc')
+        assert np.all(out[1, 3:7, 3:7, ...] > 0)
+
 
 class OpExecuteCounter(OpArrayPiper):
 
